@@ -1,0 +1,203 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'application'
+    id 'jacoco'
+    id 'org.owasp.dependencycheck' version '8.4.0'
+}
+
+group = 'net.seitter.jfat'
+version = '0.1.0'
+sourceCompatibility = '11'
+
+// Project metadata
+project.ext {
+    projectName = 'JFAT'
+    projectDescription = 'A Java library for reading and writing FAT (File Allocation Table) filesystems'
+    projectUrl = 'https://github.com/jseitter/jfat'
+    authorName = 'Jörg Seitter'
+    authorEmail = 'oss@seitter.net'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // For low-level IO operations
+    implementation 'com.google.guava:guava:31.1-jre'
+    
+    // Testing
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.0'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.9.0'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.9.0'
+    testImplementation 'org.mockito:mockito-core:4.8.0'
+}
+
+test {
+    useJUnitPlatform()
+    finalizedBy jacocoTestReport
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        csv.required = false
+        html.required = true
+    }
+}
+
+// Task to run only the working tests
+task testBasic(type: Test) {
+    useJUnitPlatform {
+        includeTags 'basic'
+        excludeTags 'performance'
+    }
+    testLogging {
+        events "passed", "skipped", "failed", "standardOut", "standardError"
+        showStandardStreams = true
+    }
+}
+
+// Create sources JAR
+task sourcesJar(type: Jar) {
+    archiveClassifier = 'sources'
+    from sourceSets.main.allSource
+}
+
+// Create Javadoc JAR
+task javadocJar(type: Jar) {
+    archiveClassifier = 'javadoc'
+    from javadoc
+}
+
+// Configure Javadoc generation
+javadoc {
+    options.addStringOption('Xdoclint:none', '-quiet')
+    options.addStringOption('encoding', 'UTF-8')
+    options.addStringOption('charset', 'UTF-8')
+}
+
+// Configure JAR manifest
+jar {
+    manifest {
+        attributes(
+            'Implementation-Title': project.ext.projectName,
+            'Implementation-Version': project.version,
+            'Implementation-Vendor': project.ext.authorName,
+            'Created-By': "Gradle ${gradle.gradleVersion}",
+            'Build-Jdk': "${System.properties['java.version']} (${System.properties['java.vendor']} ${System.properties['java.vm.version']})",
+            'Automatic-Module-Name': 'net.seitter.jfat'
+        )
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            groupId = project.group
+            artifactId = 'jfat'
+            version = project.version
+            
+            from components.java
+            
+            artifact sourcesJar
+            artifact javadocJar
+            
+            pom {
+                name = project.ext.projectName
+                description = project.ext.projectDescription
+                url = project.ext.projectUrl
+                
+                licenses {
+                    license {
+                        name = 'MIT License'
+                        url = 'https://opensource.org/licenses/MIT'
+                    }
+                }
+                
+                developers {
+                    developer {
+                        id = 'jseitter'
+                        name = project.ext.authorName
+                        email = project.ext.authorEmail
+                    }
+                }
+                
+                scm {
+                    connection = 'scm:git:git://github.com/jseitter/jfat.git'
+                    developerConnection = 'scm:git:ssh://github.com:jseitter/jfat.git'
+                    url = project.ext.projectUrl
+                }
+            }
+        }
+    }
+    
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/jseitter/jfat")
+            credentials {
+                username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+                password = project.findProperty("gpr.key") ?: System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
+}
+
+// Task to run the FatExample with the fatfs file
+task runExample(type: JavaExec) {
+    group = 'Application'
+    description = 'Run the FatExample with the fatfs file'
+    mainClass = 'net.seitter.jfat.examples.FatExample'
+    classpath = sourceSets.main.runtimeClasspath
+    args 'fatfs'
+}
+
+// Task to run the simple FatfsTest with the fatfs file
+task runFatfsTest(type: JavaExec) {
+    group = 'Application'
+    description = 'Run the simple FatfsTest with the fatfs file'
+    mainClass = 'net.seitter.jfat.examples.FatfsTest'
+    classpath = sourceSets.main.runtimeClasspath
+    args 'fatfs'
+}
+
+// Task to run the DiskImageCreator
+task createDiskImages(type: JavaExec) {
+    group = 'Application'
+    description = 'Run the DiskImageCreator to create test disk images'
+    mainClass = 'net.seitter.jfat.util.DiskImageCreator'
+    classpath = sourceSets.main.runtimeClasspath
+}
+
+// Task to run the FAT filesystem tests
+task runFatTests(type: Test) {
+    group = 'Verification'
+    description = 'Run the FAT filesystem tests'
+    useJUnitPlatform {
+        includeTags 'fat'
+    }
+}
+
+// Configure dependency check
+dependencyCheck {
+    suppressionFile = 'dependency-check-suppressions.xml'
+    format = 'ALL'
+    failBuildOnCVSS = 7.0
+    
+    analyzers {
+        // Disable experimental analyzers that may cause issues
+        experimentalEnabled = false
+        archiveEnabled = false
+        jarEnabled = true
+        centralEnabled = true
+        nexusEnabled = false
+        assemblyEnabled = false
+    }
+    
+    data {
+        directory = "${buildDir}/dependency-check-data"
+    }
+} 
