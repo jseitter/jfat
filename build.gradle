@@ -80,8 +80,14 @@ javadoc {
     options.addStringOption('charset', 'UTF-8')
 }
 
-// Configure JAR manifest
+// Configure the main class for the application plugin
+application {
+    mainClass = 'net.seitter.jfat.cli.FatCLI'
+}
+
+// Configure the JAR task to include the Main-Class attribute
 jar {
+    archiveBaseName = 'jfat'
     manifest {
         attributes(
             'Implementation-Title': project.ext.projectName,
@@ -89,7 +95,8 @@ jar {
             'Implementation-Vendor': project.ext.authorName,
             'Created-By': "Gradle ${gradle.gradleVersion}",
             'Build-Jdk': "${System.properties['java.version']} (${System.properties['java.vendor']} ${System.properties['java.vm.version']})",
-            'Automatic-Module-Name': 'net.seitter.jfat'
+            'Automatic-Module-Name': 'net.seitter.jfat',
+            'Main-Class': 'net.seitter.jfat.cli.FatCLI'
         )
     }
 }
@@ -171,6 +178,15 @@ task createDiskImages(type: JavaExec) {
     description = 'Run the DiskImageCreator to create test disk images'
     mainClass = 'net.seitter.jfat.util.DiskImageCreator'
     classpath = sourceSets.main.runtimeClasspath
+}
+
+// Task to run the FatCLI
+task runCLI(type: JavaExec) {
+    group = 'Application'
+    description = 'Run the FatCLI command-line interface'
+    mainClass = 'net.seitter.jfat.cli.FatCLI'
+    classpath = sourceSets.main.runtimeClasspath
+    // Args can be passed from command line with: ./gradlew runCLI --args="create test.img fat32 64"
 }
 
 // Task to run the FAT filesystem tests

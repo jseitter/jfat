@@ -139,6 +139,238 @@ try (DeviceAccess device = new DeviceAccess("test.img");
 }
 ```
 
+## Quick Start
+
+JFAT provides both a Java library API and a command-line interface for working with FAT filesystems.
+
+### Command-Line Interface
+
+The easiest way to get started is using the command-line interface:
+
+```bash
+# Create a FAT32 filesystem image (64MB)
+java -jar jfat.jar create mydisk.img fat32 64
+
+# List filesystem contents
+java -jar jfat.jar list mydisk.img
+
+# Create directories
+java -jar jfat.jar mkdir mydisk.img /documents
+
+# Copy files from local filesystem to FAT image
+java -jar jfat.jar copy README.md mydisk.img /documents/readme.txt
+
+# Extract files from FAT image to local filesystem
+java -jar jfat.jar extract mydisk.img /documents/readme.txt extracted_readme.txt
+
+# Show filesystem information
+java -jar jfat.jar info mydisk.img
+
+# Export filesystem structure as DOT graph
+java -jar jfat.jar graph mydisk.img filesystem.dot
+# Render the graph: dot -Tpng filesystem.dot -o filesystem.png
+```
+
+### Library API
+
+## Command-Line Interface Reference
+
+JFAT includes a comprehensive command-line interface that can be used standalone. The JAR file is configured to run the CLI by default.
+
+### Installation
+
+Download the latest JAR file from [GitHub Packages](https://github.com/jseitter/jfat/packages) or build from source:
+
+```bash
+./gradlew build
+# The JAR will be available in build/libs/jfat-<version>.jar
+```
+
+### Usage
+
+```bash
+java -jar jfat.jar <command> [options]
+```
+
+### Commands
+
+#### `create <image> <type> <size>`
+Create a new FAT filesystem image.
+
+- `image`: Path to the output image file
+- `type`: FAT type (`fat12`, `fat16`, or `fat32`)
+- `size`: Size in MB
+
+```bash
+java -jar jfat.jar create disk.img fat32 64
+java -jar jfat.jar create floppy.img fat12 1
+java -jar jfat.jar create storage.img fat16 32
+```
+
+#### `list <image> [path]` / `ls <image> [path]`
+List contents of filesystem or directory.
+
+- `image`: FAT image file
+- `path`: Directory path to list (optional, defaults to root)
+
+```bash
+java -jar jfat.jar list disk.img
+java -jar jfat.jar ls disk.img /documents
+```
+
+#### `copy <src> <image> <dest>` / `cp <src> <image> <dest>`
+Copy file or directory from local filesystem to FAT image.
+
+- `src`: Source file/directory on local filesystem
+- `image`: Target FAT image file
+- `dest`: Destination path in FAT image
+
+```bash
+java -jar jfat.jar copy README.md disk.img /readme.txt
+java -jar jfat.jar cp /home/user/documents disk.img /documents
+```
+
+#### `mkdir <image> <path>`
+Create directory in FAT image.
+
+- `image`: FAT image file
+- `path`: Directory path to create
+
+```bash
+java -jar jfat.jar mkdir disk.img /documents
+java -jar jfat.jar mkdir disk.img /documents/projects
+```
+
+#### `extract <image> <src> <dest>`
+Extract file or directory from FAT image to local filesystem.
+
+- `image`: FAT image file
+- `src`: Source path in FAT image
+- `dest`: Destination path on local filesystem
+
+```bash
+java -jar jfat.jar extract disk.img /readme.txt extracted_readme.txt
+java -jar jfat.jar extract disk.img /documents ./extracted_documents
+```
+
+#### `info <image>`
+Show detailed filesystem information.
+
+- `image`: FAT image file
+
+```bash
+java -jar jfat.jar info disk.img
+```
+
+Output includes:
+- FAT type and technical parameters
+- Cluster and sector information
+- Content statistics (files, directories, used space)
+
+#### `graph <image> [output.dot]` / `dot <image> [output.dot]`
+Export filesystem structure as DOT graph.
+
+- `image`: FAT image file
+- `output.dot`: Output DOT file (optional, defaults to stdout)
+
+```bash
+java -jar jfat.jar graph disk.img filesystem.dot
+java -jar jfat.jar dot disk.img | dot -Tpng > filesystem.png
+```
+
+To render the graph, use Graphviz:
+```bash
+# Install Graphviz (macOS)
+brew install graphviz
+
+# Install Graphviz (Ubuntu/Debian)
+sudo apt-get install graphviz
+
+# Render as PNG
+dot -Tpng filesystem.dot -o filesystem.png
+
+# Render as SVG
+dot -Tsvg filesystem.dot -o filesystem.svg
+```
+
+#### `help` / `--help` / `-h`
+Show help message and usage information.
+
+#### `version` / `--version` / `-v`
+Show version information.
+
+### Advanced Usage
+
+#### Debug Mode
+Enable debug output for troubleshooting:
+
+```bash
+# Using environment variable
+JFAT_DEBUG=1 java -jar jfat.jar command
+
+# Using system property
+java -Djfat.debug=true -jar jfat.jar command
+```
+
+#### Gradle Tasks
+If building from source, you can also use Gradle tasks:
+
+```bash
+# Run CLI via Gradle
+./gradlew runCLI --args="help"
+./gradlew runCLI --args="create test.img fat32 32"
+
+# Run other utilities
+./gradlew runExample
+./gradlew runFatfsTest
+./gradlew createDiskImages
+```
+
+### Examples and Use Cases
+
+#### Creating a Bootable FAT32 Image
+```bash
+# Create a 64MB FAT32 image
+java -jar jfat.jar create bootable.img fat32 64
+
+# Create boot directory structure
+java -jar jfat.jar mkdir bootable.img /boot
+java -jar jfat.jar mkdir bootable.img /boot/grub
+
+# Copy bootloader files
+java -jar jfat.jar copy /path/to/bootloader bootable.img /boot/
+```
+
+#### Digital Forensics
+```bash
+# Extract all files from a disk image
+java -jar jfat.jar extract evidence.img / ./extracted_evidence/
+
+# Generate filesystem structure for analysis
+java -jar jfat.jar graph evidence.img evidence_structure.dot
+dot -Tpng evidence_structure.dot -o evidence_structure.png
+
+# Get detailed filesystem information
+java -jar jfat.jar info evidence.img
+```
+
+#### Legacy System Compatibility
+```bash
+# Create FAT12 floppy disk image
+java -jar jfat.jar create floppy.img fat12 1
+
+# Copy files for legacy systems
+java -jar jfat.jar copy legacy_software floppy.img /
+```
+
+### Error Handling
+
+The CLI provides clear error messages and uses appropriate exit codes:
+- `0`: Success
+- `1`: General error (invalid arguments, file not found, etc.)
+
+Enable debug mode for detailed error information when troubleshooting issues.
+
 ## Building
 
 This project uses Gradle as the build system:
