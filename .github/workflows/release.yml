@@ -59,7 +59,9 @@ jobs:
     
     - name: Update version in build.gradle
       run: |
-        sed -i "s/version = '[^']*'/version = '$VERSION'/" build.gradle
+        # Create temporary file and replace (works cross-platform)
+        sed "s|version = .*|version = '$VERSION'|" build.gradle > build.gradle.tmp
+        mv build.gradle.tmp build.gradle
         echo "Updated build.gradle version to: $VERSION"
         grep "version = " build.gradle
     
