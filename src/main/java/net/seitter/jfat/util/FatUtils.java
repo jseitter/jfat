@@ -180,4 +180,151 @@ public class FatUtils {
     public static int encodeFatDate(int year, int month, int day) {
         return (((year - 1980) & 0x7F) << 9) | ((month & 0xF) << 5) | (day & 0x1F);
     }
+
+    /**
+     * Checks if a filename requires Long Filename (LFN) support.
+     *
+     * @param filename The filename to check
+     * @return True if LFN is required
+     */
+    public static boolean requiresLongFilename(String filename) {
+        if (filename == null || filename.isEmpty()) {
+            return false;
+        }
+        
+        // Check length
+        if (filename.length() > 12) {
+            return true;
+        }
+        
+        // Check for non-ASCII characters
+        for (char c : filename.toCharArray()) {
+            if (c > 127) {
+                return true;
+            }
+        }
+        
+        // Check for invalid 8.3 characters
+        if (filename.matches(".*[\\s\"*+,/:;<=>?\\[\\]|].*")) {
+            return true;
+        }
+        
+        // Check for multiple dots
+        if (filename.indexOf('.') != filename.lastIndexOf('.')) {
+            return true;
+        }
+        
+        // Check 8.3 format
+        int dotIndex = filename.lastIndexOf('.');
+        if (dotIndex == -1) {
+            // No extension, name must be <= 8 characters
+            return filename.length() > 8;
+        } else {
+            // Has extension, check format
+            String baseName = filename.substring(0, dotIndex);
+            String extension = filename.substring(dotIndex + 1);
+            return baseName.length() > 8 || extension.length() > 3 || 
+                   baseName.length() == 0 || extension.length() == 0;
+        }
+    }
+    
+    /**
+     * Converts a filename to a valid 8.3 format name (uppercase, no invalid chars).
+     *
+     * @param filename The original filename
+     * @return A cleaned 8.3 format name
+     */
+    public static String toValidShortName(String filename) {
+        if (filename == null || filename.isEmpty()) {
+            return "";
+        }
+        
+        // Remove invalid characters and convert to uppercase
+        String cleaned = filename.toUpperCase()
+                                .replaceAll("[^A-Z0-9!#$%&'()\\-@^_`{}~]", "")
+                                .replaceAll("\\s+", "");
+        
+        // Handle extension
+        int lastDot = cleaned.lastIndexOf('.');
+        if (lastDot > 0 && lastDot < cleaned.length() - 1) {
+            String name = cleaned.substring(0, lastDot);
+            String ext = cleaned.substring(lastDot + 1);
+            
+            // Truncate to 8.3 format
+            if (name.length() > 8) {
+                name = name.substring(0, 8);
+            }
+            if (ext.length() > 3) {
+                ext = ext.substring(0, 3);
+            }
+            
+            return name + "." + ext;
+        } else {
+            // No extension or invalid dot position
+            cleaned = cleaned.replace(".", "");
+            if (cleaned.length() > 8) {
+                cleaned = cleaned.substring(0, 8);
+            }
+            return cleaned;
+        }
+    }
+    
+    /**
+     * Reads UTF-16LE characters from a byte array.
+     *
+     * @param data   The byte array
+     * @param offset The starting offset
+     * @param count  The number of UTF-16 characters to read
+     * @return The decoded string
+     */
+    public static String readUtf16Le(byte[] data, int offset, int count) {
+        StringBuilder result = new StringBuilder();
+        
+        for (int i = 0; i < count && offset + (i * 2) + 1 < data.length; i++) {
+            int charCode = readUInt16(data, offset + (i * 2));
+            
+            // Stop at null terminator
+            if (charCode == 0) {
+                break;
+            }
+            
+            // Skip 0xFFFF padding
+            if (charCode == 0xFFFF) {
+                continue;
+            }
+            
+            result.append((char) charCode);
+        }
+        
+        return result.toString();
+    }
+    
+    /**
+     * Writes UTF-16LE characters to a byte array.
+     *
+     * @param data   The byte array
+     * @param offset The starting offset
+     * @param text   The text to write
+     * @param count  The number of UTF-16 character slots available
+     */
+    public static void writeUtf16Le(byte[] data, int offset, String text, int count) {
+        int textLen = Math.min(text.length(), count);
+        
+        // Write the text characters
+        for (int i = 0; i < textLen; i++) {
+            char c = text.charAt(i);
+            writeUInt16(data, offset + (i * 2), c);
+        }
+        
+        // Add null terminator if there's space
+        if (textLen < count) {
+            writeUInt16(data, offset + (textLen * 2), 0);
+            textLen++;
+        }
+        
+        // Fill remaining slots with 0xFFFF padding
+        for (int i = textLen; i < count; i++) {
+            writeUInt16(data, offset + (i * 2), 0xFFFF);
+        }
+    }
 } 

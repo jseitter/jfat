@@ -19,6 +19,14 @@ public abstract class FatEntry {
     public static final int ATTR_DIRECTORY = 0x10;
     public static final int ATTR_ARCHIVE = 0x20;
     
+    // Long Filename (LFN) constants
+    public static final int ATTR_LONG_NAME = 0x0F; // LFN entry attribute
+    public static final int LFN_ENTRY_SIZE = 32;   // Same as regular entry
+    public static final int LFN_CHARS_PER_ENTRY = 13; // UTF-16 chars per LFN entry
+    public static final int LFN_MAX_FILENAME_LENGTH = 255; // Maximum filename length
+    public static final int LFN_SEQUENCE_MASK = 0x1F; // Sequence number mask
+    public static final int LFN_LAST_ENTRY_MASK = 0x40; // Last entry in sequence mask
+    
     protected final FatFileSystem fileSystem;
     protected final FatDirectory parent;
     protected final String name;

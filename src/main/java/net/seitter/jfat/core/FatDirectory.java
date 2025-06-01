@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 
 import net.seitter.jfat.util.FatUtils;
 
@@ -150,53 +152,25 @@ public class FatDirectory extends FatEntry {
         List<FatEntry> entries = new ArrayList<>();
         byte[] dirData = readDirectoryData();
         
-        System.out.println("Directory data size: " + dirData.length + " bytes");
+        // Use LFN processor to parse directory with long filename support
+        List<LfnProcessor.DirectoryEntryResult> results = 
+            LfnProcessor.parseDirectoryWithLfn(dirData, fileSystem, this);
         
-        for (int i = 0; i < dirData.length; i += ENTRY_SIZE) {
-            // Check if we have enough data for a complete entry
-            if (i + ENTRY_SIZE > dirData.length) {
-                System.out.println("Warning: Incomplete directory entry at offset " + i);
-                break;
-            }
+        for (LfnProcessor.DirectoryEntryResult result : results) {
+            FatEntry entry = result.getFatEntry();
             
-            // Check if this is the end of the directory
-            if (dirData[i] == 0) {
-                System.out.println("End of directory marker found at offset " + i);
-                break;
-            }
-            
-            // Skip deleted entries
-            if ((dirData[i] & 0xFF) == 0xE5) {
-                System.out.println("Deleted entry found at offset " + i);
+            // Skip "." and ".." entries
+            if (entry.getName().equals(".") || entry.getName().equals("..")) {
                 continue;
             }
             
-            // Skip volume label and long filename entries
-            int attributes = dirData[i + 11] & 0xFF;
-            if ((attributes & ATTR_VOLUME_ID) != 0) {
-                System.out.println("Volume ID entry found at offset " + i);
-                continue;
+            // Update the entry's displayed name if it has a long filename
+            if (result.hasLongFilename()) {
+                // Create a new entry with the long filename
+                entry = createEntryWithLongFilename(entry, result.getLongFilename());
             }
             
-            try {
-                // Create the entry
-                byte[] entryData = new byte[32];
-                System.arraycopy(dirData, i, entryData, 0, 32);
-                
-                FatEntry entry = FatEntry.fromDirectoryEntry(fileSystem, this, entryData, i);
-                
-                // Skip "." and ".." entries
-                if (entry.getName().equals(".") || entry.getName().equals("..")) {
-                    System.out.println("Special entry found: " + entry.getName());
-                    continue;
-                }
-                
-                System.out.println("Entry found: " + entry.getName());
-                entries.add(entry);
-            } catch (Exception e) {
-                System.out.println("Error processing directory entry at offset " + i + ": " + e.getMessage());
-                e.printStackTrace();
-            }
+            entries.add(entry);
         }
         
         // Update access date
@@ -211,57 +185,35 @@ public class FatDirectory extends FatEntry {
     /**
      * Gets an entry in this directory by name.
      *
-     * @param name The name of the entry
+     * @param name The name of the entry (can be long filename or 8.3 name)
      * @return The entry, or null if not found
      * @throws IOException If the directory cannot be read
      */
     public FatEntry getEntry(String name) throws IOException {
         byte[] dirData = readDirectoryData();
         
-        for (int i = 0; i < dirData.length; i += ENTRY_SIZE) {
-            // Check if we have enough data for a complete entry
-            if (i + ENTRY_SIZE > dirData.length) {
-                break;
-            }
+        // Use LFN processor to parse directory with long filename support
+        List<LfnProcessor.DirectoryEntryResult> results = 
+            LfnProcessor.parseDirectoryWithLfn(dirData, fileSystem, this);
+        
+        for (LfnProcessor.DirectoryEntryResult result : results) {
+            String displayName = result.getDisplayName();
+            String shortName = result.getShortFilename();
             
-            // Check if this is the end of the directory
-            if (dirData[i] == 0) {
-                break;
-            }
-            
-            // Skip deleted entries
-            if ((dirData[i] & 0xFF) == 0xE5) {
-                continue;
-            }
-            
-            // Skip volume label and long filename entries
-            int attributes = dirData[i + 11] & 0xFF;
-            if ((attributes & ATTR_VOLUME_ID) != 0) {
-                continue;
-            }
-            
-            try {
-                // Read the entry name
-                byte[] nameData = new byte[11];
-                System.arraycopy(dirData, i, nameData, 0, 11);
-                String entryName = FatUtils.readFatName(nameData);
+            // Check both long filename and short filename
+            if (displayName.equalsIgnoreCase(name) || shortName.equalsIgnoreCase(name)) {
+                FatEntry entry = result.getFatEntry();
                 
-                if (entryName.equalsIgnoreCase(name)) {
-                    // Found a matching entry, create the complete entry data
-                    byte[] entryData = new byte[32];
-                    System.arraycopy(dirData, i, entryData, 0, 32);
-                    
-                    // Create the entry
-                    return FatEntry.fromDirectoryEntry(fileSystem, this, entryData, i);
+                // Return entry with long filename if available
+                if (result.hasLongFilename()) {
+                    return createEntryWithLongFilename(entry, result.getLongFilename());
+                } else {
+                    return entry;
                 }
-            } catch (Exception e) {
-                System.out.println("Error processing directory entry while searching for '" + 
-                                  name + "' at offset " + i + ": " + e.getMessage());
             }
         }
         
-        // Entry not found
-        return null;
+        return null; // Entry not found
     }
     
     /**
@@ -285,9 +237,112 @@ public class FatDirectory extends FatEntry {
     }
     
     /**
+     * Finds consecutive free entry slots in the directory.
+     *
+     * @param numEntries Number of consecutive entries needed
+     * @return The offset of the first free entry, or -1 if not found
+     * @throws IOException If the directory cannot be read
+     */
+    private int findConsecutiveFreeEntries(int numEntries) throws IOException {
+        byte[] dirData = readDirectoryData();
+        
+        for (int i = 0; i <= dirData.length - (numEntries * ENTRY_SIZE); i += ENTRY_SIZE) {
+            boolean allFree = true;
+            
+            // Check if all required consecutive entries are free
+            for (int j = 0; j < numEntries; j++) {
+                int offset = i + (j * ENTRY_SIZE);
+                if (offset >= dirData.length || 
+                    (dirData[offset] != 0 && (dirData[offset] & 0xFF) != 0xE5)) {
+                    allFree = false;
+                    break;
+                }
+            }
+            
+            if (allFree) {
+                return i;
+            }
+        }
+        
+        return -1; // No consecutive free entries found
+    }
+    
+    /**
+     * Checks if a filename is a valid 8.3 short name.
+     *
+     * @param name The filename to check
+     * @return True if it's a valid 8.3 name
+     */
+    private boolean isValidShortName(String name) {
+        if (name == null || name.isEmpty() || name.length() > 12) {
+            return false;
+        }
+        
+        // Check for invalid characters
+        if (name.matches(".*[\\s\"*+,/:;<=>?\\[\\]|].*")) {
+            return false;
+        }
+        
+        // Check 8.3 format
+        int dotIndex = name.lastIndexOf('.');
+        if (dotIndex == -1) {
+            // No extension, name must be <= 8 characters
+            return name.length() <= 8;
+        } else {
+            // Has extension, check format
+            String baseName = name.substring(0, dotIndex);
+            String extension = name.substring(dotIndex + 1);
+            return baseName.length() <= 8 && extension.length() <= 3 && 
+                   baseName.length() > 0 && extension.length() > 0;
+        }
+    }
+    
+    /**
+     * Gets the set of existing 8.3 short names in this directory.
+     *
+     * @return Set of existing short names
+     * @throws IOException If the directory cannot be read
+     */
+    private Set<String> getExistingShortNames() throws IOException {
+        Set<String> names = new HashSet<>();
+        byte[] dirData = readDirectoryData();
+        
+        for (int i = 0; i < dirData.length; i += ENTRY_SIZE) {
+            if (i + ENTRY_SIZE > dirData.length) {
+                break;
+            }
+            
+            // Check for end of directory
+            if (dirData[i] == 0) {
+                break;
+            }
+            
+            // Skip deleted entries
+            if ((dirData[i] & 0xFF) == 0xE5) {
+                continue;
+            }
+            
+            int attributes = dirData[i + 11] & 0xFF;
+            
+            // Skip LFN and volume label entries
+            if (attributes == ATTR_LONG_NAME || (attributes & ATTR_VOLUME_ID) != 0) {
+                continue;
+            }
+            
+            // Extract 8.3 name
+            byte[] nameData = new byte[11];
+            System.arraycopy(dirData, i, nameData, 0, 11);
+            String shortName = FatUtils.readFatName(nameData);
+            names.add(shortName.toUpperCase());
+        }
+        
+        return names;
+    }
+    
+    /**
      * Creates a new file in this directory.
      *
-     * @param name The name of the file
+     * @param name The name of the file (can be a long filename)
      * @return The created file
      * @throws IOException If the file cannot be created
      */
@@ -301,29 +356,72 @@ public class FatDirectory extends FatEntry {
             return (FatFile) existing;
         }
         
-        // Find a free entry slot
-        int entryOffset = findFreeEntry();
+        // Determine if we need LFN entries - use FatUtils helper
+        boolean needsLfn = FatUtils.requiresLongFilename(name);
+        String shortName = name;
+        List<LfnEntry> lfnEntries = new ArrayList<>();
+        
+        if (needsLfn) {
+            // Get existing 8.3 names to avoid conflicts
+            Set<String> existingNames = getExistingShortNames();
+            
+            // Generate unique 8.3 name
+            shortName = LfnProcessor.generateShortName(name, existingNames);
+            
+            // Generate LFN entries
+            byte[] shortNameBytes = FatUtils.writeFatName(shortName);
+            lfnEntries = LfnProcessor.generateLfnEntries(name, shortNameBytes);
+        }
+        
+        // Calculate total entries needed
+        int totalEntries = 1 + lfnEntries.size();
+        
+        // Find consecutive free entry slots
+        int entryOffset = findConsecutiveFreeEntries(totalEntries);
         if (entryOffset == -1) {
             // Need to expand the directory
             expandDirectory();
-            entryOffset = findFreeEntry();
+            entryOffset = findConsecutiveFreeEntries(totalEntries);
+            if (entryOffset == -1) {
+                throw new IOException("Could not allocate directory entries for: " + name);
+            }
         }
         
-        // Create a new entry
-        Date now = new Date();
-        FatFile file = new FatFile(fileSystem, this, name, 0, 0, ATTR_ARCHIVE,
-                                  now, now, now, entryOffset);
+        // Read directory data and write LFN entries first
+        byte[] dirData = readDirectoryData();
+        int currentOffset = entryOffset;
         
-        // Write the entry to the directory
+        for (LfnEntry lfnEntry : lfnEntries) {
+            byte[] lfnData = lfnEntry.toDirectoryEntry();
+            System.arraycopy(lfnData, 0, dirData, currentOffset, ENTRY_SIZE);
+            currentOffset += ENTRY_SIZE;
+        }
+        
+        // Write the updated directory data with LFN entries
+        if (!lfnEntries.isEmpty()) {
+            writeDirectoryData(dirData);
+        }
+        
+        // Create the 8.3 entry
+        Date now = new Date();
+        FatFile file = new FatFile(fileSystem, this, shortName, 0, 0, ATTR_ARCHIVE,
+                                  now, now, now, currentOffset);
+        
+        // Write the 8.3 entry
         file.updateDirectoryEntry();
         
-        return file;
+        // If we have a long filename, return a wrapper with the long name
+        if (needsLfn) {
+            return (FatFile) createEntryWithLongFilename(file, name);
+        } else {
+            return file;
+        }
     }
     
     /**
      * Creates a new subdirectory in this directory.
      *
-     * @param name The name of the subdirectory
+     * @param name The name of the subdirectory (can be a long filename)
      * @return The created directory
      * @throws IOException If the directory cannot be created
      */
@@ -337,52 +435,95 @@ public class FatDirectory extends FatEntry {
             return (FatDirectory) existing;
         }
         
-        // Find a free entry slot
-        int entryOffset = findFreeEntry();
+        // Determine if we need LFN entries - use FatUtils helper
+        boolean needsLfn = FatUtils.requiresLongFilename(name);
+        String shortName = name;
+        List<LfnEntry> lfnEntries = new ArrayList<>();
+        
+        if (needsLfn) {
+            // Get existing 8.3 names to avoid conflicts
+            Set<String> existingNames = getExistingShortNames();
+            
+            // Generate unique 8.3 name
+            shortName = LfnProcessor.generateShortName(name, existingNames);
+            
+            // Generate LFN entries
+            byte[] shortNameBytes = FatUtils.writeFatName(shortName);
+            lfnEntries = LfnProcessor.generateLfnEntries(name, shortNameBytes);
+        }
+        
+        // Calculate total entries needed
+        int totalEntries = 1 + lfnEntries.size();
+        
+        // Find consecutive free entry slots
+        int entryOffset = findConsecutiveFreeEntries(totalEntries);
         if (entryOffset == -1) {
             // Need to expand the directory
             expandDirectory();
-            entryOffset = findFreeEntry();
+            entryOffset = findConsecutiveFreeEntries(totalEntries);
+            if (entryOffset == -1) {
+                throw new IOException("Could not allocate directory entries for: " + name);
+            }
         }
         
         // Allocate a cluster for the new directory
         long dirCluster = fileSystem.allocateCluster();
         
-        // Create a new entry
-        Date now = new Date();
-        FatDirectory dir = new FatDirectory(fileSystem, this, name, dirCluster, ATTR_DIRECTORY,
-                                          now, now, now, entryOffset);
+        // Read directory data and write LFN entries first
+        byte[] dirData = readDirectoryData();
+        int currentOffset = entryOffset;
         
-        // Write the entry to the directory
+        for (LfnEntry lfnEntry : lfnEntries) {
+            byte[] lfnData = lfnEntry.toDirectoryEntry();
+            System.arraycopy(lfnData, 0, dirData, currentOffset, ENTRY_SIZE);
+            currentOffset += ENTRY_SIZE;
+        }
+        
+        // Write the updated directory data with LFN entries
+        if (!lfnEntries.isEmpty()) {
+            writeDirectoryData(dirData);
+        }
+        
+        // Create the 8.3 directory entry
+        Date now = new Date();
+        FatDirectory dir = new FatDirectory(fileSystem, this, shortName, dirCluster, ATTR_DIRECTORY,
+                                          now, now, now, currentOffset);
+        
+        // Write the 8.3 entry
         dir.updateDirectoryEntry();
         
         // Initialize the directory with "." and ".." entries
         int clusterSize = fileSystem.getBootSector().getClusterSizeBytes();
-        byte[] dirData = new byte[clusterSize];
+        byte[] newDirData = new byte[clusterSize];
         
         // "." entry (points to itself)
-        System.arraycopy(FatUtils.writeFatName("."), 0, dirData, 0, 11);
-        dirData[11] = ATTR_DIRECTORY; // Attributes
-        FatUtils.writeUInt16(dirData, 26, (int) (dirCluster & 0xFFFF)); // First cluster low
+        System.arraycopy(FatUtils.writeFatName("."), 0, newDirData, 0, 11);
+        newDirData[11] = ATTR_DIRECTORY; // Attributes
+        FatUtils.writeUInt16(newDirData, 26, (int) (dirCluster & 0xFFFF)); // First cluster low
         if (fileSystem.getBootSector().getFatType() == FatType.FAT32) {
-            FatUtils.writeUInt16(dirData, 20, (int) (dirCluster >> 16)); // First cluster high
+            FatUtils.writeUInt16(newDirData, 20, (int) (dirCluster >> 16)); // First cluster high
         }
         
         // ".." entry (points to parent)
-        System.arraycopy(FatUtils.writeFatName(".."), 0, dirData, ENTRY_SIZE, 11);
-        dirData[ENTRY_SIZE + 11] = ATTR_DIRECTORY; // Attributes
+        System.arraycopy(FatUtils.writeFatName(".."), 0, newDirData, ENTRY_SIZE, 11);
+        newDirData[ENTRY_SIZE + 11] = ATTR_DIRECTORY; // Attributes
         
         // Set parent cluster (or 0 for root)
         long parentCluster = (this.parent == null) ? 0 : this.firstCluster;
-        FatUtils.writeUInt16(dirData, ENTRY_SIZE + 26, (int) (parentCluster & 0xFFFF)); // First cluster low
+        FatUtils.writeUInt16(newDirData, ENTRY_SIZE + 26, (int) (parentCluster & 0xFFFF)); // First cluster low
         if (fileSystem.getBootSector().getFatType() == FatType.FAT32) {
-            FatUtils.writeUInt16(dirData, ENTRY_SIZE + 20, (int) (parentCluster >> 16)); // First cluster high
+            FatUtils.writeUInt16(newDirData, ENTRY_SIZE + 20, (int) (parentCluster >> 16)); // First cluster high
         }
         
         // Write the directory data
-        fileSystem.writeCluster(dirCluster, dirData);
+        fileSystem.writeCluster(dirCluster, newDirData);
         
-        return dir;
+        // If we have a long filename, return a wrapper with the long name
+        if (needsLfn) {
+            return (FatDirectory) createEntryWithLongFilename(dir, name);
+        } else {
+            return dir;
+        }
     }
     
     /**
@@ -443,5 +584,52 @@ public class FatDirectory extends FatEntry {
         byte[] dirData = parent.readDirectoryData();
         dirData[entryOffset] = (byte) 0xE5; // Mark as deleted
         parent.writeDirectoryData(dirData);
+    }
+
+    /**
+     * Creates a new FatEntry with a long filename for display purposes.
+     * This preserves the original entry data but overrides the name.
+     */
+    private FatEntry createEntryWithLongFilename(FatEntry originalEntry, String longFilename) {
+        if (originalEntry.isDirectory()) {
+            return new FatDirectory(fileSystem, this, longFilename, 
+                                  originalEntry.getFirstCluster(), originalEntry.getAttributes(),
+                                  originalEntry.getCreateTime(), originalEntry.getModifyTime(), 
+                                  originalEntry.getAccessDate(), originalEntry.entryOffset) {
+                
+                private final FatEntry original = originalEntry;
+                
+                @Override
+                public String getName() {
+                    return longFilename;
+                }
+                
+                @Override
+                public void updateDirectoryEntry() throws IOException {
+                    // Delegate to the original entry to ensure 8.3 name is written correctly
+                    original.updateDirectoryEntry();
+                }
+            };
+        } else {
+            return new FatFile(fileSystem, this, longFilename, 
+                             originalEntry.getFirstCluster(), originalEntry.getSize(), 
+                             originalEntry.getAttributes(), originalEntry.getCreateTime(), 
+                             originalEntry.getModifyTime(), originalEntry.getAccessDate(), 
+                             originalEntry.entryOffset) {
+                
+                private final FatEntry original = originalEntry;
+                
+                @Override
+                public String getName() {
+                    return longFilename;
+                }
+                
+                @Override
+                public void updateDirectoryEntry() throws IOException {
+                    // Delegate to the original entry to ensure 8.3 name is written correctly
+                    original.updateDirectoryEntry();
+                }
+            };
+        }
     }
 } 
