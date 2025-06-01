@@ -18,6 +18,9 @@ A Java library for reading and writing FAT (File Allocation Table) filesystems. 
 - Create, delete, and modify directories
 - Support for FAT12, FAT16, and FAT32 formats
 - Low-level access to FAT structures (boot sector, file allocation tables, etc.)
+- Comprehensive command-line interface with filesystem operations
+- Filesystem visualization with DOT graph export
+- Expert mode for detailed FAT table analysis and cluster chain visualization
 - Comprehensive test suite with performance benchmarks
 
 ## Installation
@@ -169,6 +172,38 @@ java -jar jfat.jar info mydisk.img
 # Export filesystem structure as DOT graph
 java -jar jfat.jar graph mydisk.img filesystem.dot
 # Render the graph: dot -Tpng filesystem.dot -o filesystem.png
+
+# Export detailed filesystem structure with FAT table analysis (expert mode)
+java -jar jfat.jar graph mydisk.img detailed_filesystem.dot --expert
+# Render the detailed graph: dot -Tpng detailed_filesystem.dot -o detailed_filesystem.png
+```
+
+**Expert Mode Features:**
+- **FAT Table Summary**: Shows total clusters, used/free clusters, bad clusters, and EOF markers
+- **Detailed Filesystem Information**: Displays cluster size, sectors per cluster, reserved sectors, and FAT table counts
+- **Cluster Chain Visualization**: Shows the exact cluster numbers and chains for files and directories
+- **Multi-Cluster File Analysis**: Visualizes how large files span multiple clusters with cluster-to-cluster connections
+
+Expert mode is particularly useful for:
+- **Filesystem Analysis**: Understanding internal structure and cluster allocation patterns
+- **Digital Forensics**: Detailed visualization of file storage and potential fragmentation
+- **Educational Purposes**: Learning how FAT filesystems organize data at the cluster level
+- **Performance Debugging**: Identifying fragmentation and cluster utilization issues
+
+To render the graph, use Graphviz:
+
+```bash
+# Install Graphviz (macOS)
+brew install graphviz
+
+# Install Graphviz (Ubuntu/Debian)
+sudo apt-get install graphviz
+
+# Render as PNG
+dot -Tpng filesystem.dot -o filesystem.png
+
+# Render as SVG
+dot -Tsvg filesystem.dot -o filesystem.svg
 ```
 
 ### Library API
@@ -267,15 +302,20 @@ Output includes:
 - Cluster and sector information
 - Content statistics (files, directories, used space)
 
-#### `graph <image> [output.dot]` / `dot <image> [output.dot]`
+#### `graph <image> [output.dot] [--expert]` / `dot <image> [output.dot] [--expert]`
 Export filesystem structure as DOT graph.
 
 - `image`: FAT image file
 - `output.dot`: Output DOT file (optional, defaults to stdout)
+- `--expert`: Include detailed FAT table and cluster chain information (optional)
 
 ```bash
 java -jar jfat.jar graph disk.img filesystem.dot
 java -jar jfat.jar dot disk.img | dot -Tpng > filesystem.png
+
+# Expert mode with detailed FAT table and cluster information
+java -jar jfat.jar graph disk.img expert_view.dot --expert
+java -jar jfat.jar graph disk.img --expert | dot -Tpng > detailed_filesystem.png
 ```
 
 To render the graph, use Graphviz:
@@ -349,6 +389,22 @@ java -jar jfat.jar extract evidence.img / ./extracted_evidence/
 # Generate filesystem structure for analysis
 java -jar jfat.jar graph evidence.img evidence_structure.dot
 dot -Tpng evidence_structure.dot -o evidence_structure.png
+
+# Generate detailed forensic analysis with cluster chains and FAT table information
+java -jar jfat.jar graph evidence.img evidence_detailed.dot --expert
+dot -Tpng evidence_detailed.dot -o evidence_detailed.png
+
+**Expert Mode Features:**
+- **FAT Table Summary**: Shows total clusters, used/free clusters, bad clusters, and EOF markers
+- **Detailed Filesystem Information**: Displays cluster size, sectors per cluster, reserved sectors, and FAT table counts
+- **Cluster Chain Visualization**: Shows the exact cluster numbers and chains for files and directories
+- **Multi-Cluster File Analysis**: Visualizes how large files span multiple clusters with cluster-to-cluster connections
+
+Expert mode is particularly useful for:
+- **Filesystem Analysis**: Understanding internal structure and cluster allocation patterns
+- **Digital Forensics**: Detailed visualization of file storage and potential fragmentation
+- **Educational Purposes**: Learning how FAT filesystems organize data at the cluster level
+- **Performance Debugging**: Identifying fragmentation and cluster utilization issues 
 
 # Get detailed filesystem information
 java -jar jfat.jar info evidence.img
@@ -649,4 +705,5 @@ src/
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
