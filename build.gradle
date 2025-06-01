@@ -28,6 +28,11 @@ dependencies {
     // For low-level IO operations - updated to latest version for security
     implementation 'com.google.guava:guava:33.3.1-jre'
     
+    // For interactive command-line interface
+    implementation 'org.jline:jline-terminal:3.21.0'
+    implementation 'org.jline:jline-reader:3.21.0'
+    implementation 'org.jline:jline-builtins:3.21.0'
+    
     // Testing
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.0'
     testImplementation 'org.junit.jupiter:junit-jupiter-params:5.9.0'
@@ -100,6 +105,32 @@ jar {
         )
     }
 }
+
+// Create a fat JAR with all dependencies
+task fatJar(type: Jar) {
+    archiveBaseName = 'jfat'
+    archiveClassifier = 'fat'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes(
+            'Implementation-Title': project.ext.projectName,
+            'Implementation-Version': project.version,
+            'Implementation-Vendor': project.ext.authorName,
+            'Created-By': "Gradle ${gradle.gradleVersion}",
+            'Build-Jdk': "${System.properties['java.version']} (${System.properties['java.vendor']} ${System.properties['java.vm.version']})",
+            'Automatic-Module-Name': 'net.seitter.jfat',
+            'Main-Class': 'net.seitter.jfat.cli.FatCLI'
+        )
+    }
+    from sourceSets.main.output
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
+}
+
+// Make build depend on fatJar
+build.dependsOn fatJar
 
 publishing {
     publications {

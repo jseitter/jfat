@@ -21,6 +21,7 @@ A Java library for reading and writing FAT (File Allocation Table) filesystems. 
 - Comprehensive command-line interface with filesystem operations
 - Filesystem visualization with DOT graph export
 - Expert mode for detailed FAT table analysis and cluster chain visualization
+- **Interactive shell with MS-DOS-like commands for navigation and file management**
 - Comprehensive test suite with performance benchmarks
 
 ## Installation
@@ -176,6 +177,9 @@ java -jar jfat.jar graph mydisk.img filesystem.dot
 # Export detailed filesystem structure with FAT table analysis (expert mode)
 java -jar jfat.jar graph mydisk.img detailed_filesystem.dot --expert
 # Render the detailed graph: dot -Tpng detailed_filesystem.dot -o detailed_filesystem.png
+
+# Start the interactive shell (MS-DOS-like navigation)
+java -jar jfat.jar interactive mydisk.img
 ```
 
 **Expert Mode Features:**
@@ -338,6 +342,49 @@ Show help message and usage information.
 
 #### `version` / `--version` / `-v`
 Show version information.
+
+#### `interactive <image>` / `shell <image>`
+Start an interactive shell for navigating and managing a FAT image with MS-DOS-like commands.
+
+- `image`: FAT image file to open in interactive mode
+
+```bash
+java -jar jfat.jar interactive disk.img
+```
+
+**Supported commands:**
+- `DIR` / `LS` — List directory contents
+- `CD <path>` — Change directory
+- `COPY <src> <dest>` / `CP` — Copy file (from local or within FAT)
+- `DEL <file>` / `DELETE` — Delete file
+- `MD <dir>` / `MKDIR` — Create directory
+- `RD <dir>` / `RMDIR` — Remove directory
+- `TYPE <file>` / `CAT` — Display file contents
+- `PWD` — Show current directory
+- `CLS` / `CLEAR` — Clear screen
+- `HELP` — Show help
+- `EXIT` / `QUIT` — Exit interactive shell
+
+**Example session:**
+```
+$ java -jar jfat.jar interactive disk.img
+JFAT Interactive Shell - FAT Filesystem Navigator
+Type 'HELP' for available commands or 'EXIT' to quit
+Current filesystem: FAT32
+
+/> DIR
+(empty directory)
+/> MD docs
+Directory created: docs
+/> COPY /local/path/readme.txt /docs/readme.txt
+Copied /local/path/readme.txt to /docs/readme.txt (1.2 KB)
+/> DIR docs
+readme.txt           
+/> TYPE /docs/readme.txt
+Hello, FAT filesystem!
+/> EXIT
+Goodbye!
+```
 
 ### Advanced Usage
 

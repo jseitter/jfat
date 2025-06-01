@@ -58,6 +58,10 @@ public class FatCLI {
                 case "extract":
                     handleExtract(Arrays.copyOfRange(args, 1, args.length));
                     break;
+                case "interactive":
+                case "shell":
+                    handleInteractive(Arrays.copyOfRange(args, 1, args.length));
+                    break;
                 case "help":
                 case "-h":
                 case "--help":
@@ -107,6 +111,9 @@ public class FatCLI {
         System.out.println("                                   Use --expert for detailed FAT table and cluster chains");
         System.out.println("  dot <image> [output.dot] [--expert]    Alias for graph");
         System.out.println();
+        System.out.println("  interactive <image>              Run interactive shell with FAT image");
+        System.out.println("  shell <image>                    Alias for interactive");
+        System.out.println();
         System.out.println("  help                             Show this help message");
         System.out.println("  version                          Show version information");
         System.out.println();
@@ -116,6 +123,7 @@ public class FatCLI {
         System.out.println("  java -jar jfat.jar copy /home/user/file.txt disk.img /file.txt");
         System.out.println("  java -jar jfat.jar graph disk.img filesystem.dot");
         System.out.println("  java -jar jfat.jar graph disk.img expert_view.dot --expert");
+        System.out.println("  java -jar jfat.jar interactive disk.img");
         System.out.println();
         System.out.println("Set JFAT_DEBUG=1 or -Djfat.debug=true for debug output");
     }
@@ -407,6 +415,31 @@ public class FatCLI {
             }
             
             System.out.println("✓ Extraction completed successfully");
+        }
+    }
+    
+    private static void handleInteractive(String[] args) throws IOException {
+        if (args.length != 1) {
+            System.err.println("Usage: interactive <image>");
+            System.err.println("  image: FAT image file to open in interactive shell");
+            System.exit(1);
+        }
+        
+        String imagePath = args[0];
+        
+        try (DeviceAccess device = new DeviceAccess(imagePath);
+             FatFileSystem fs = FatFileSystem.mount(device)) {
+            
+            System.out.println("Opening FAT image: " + imagePath);
+            System.out.println("Filesystem: " + fs.getBootSector().getFatType());
+            System.out.println();
+            
+            FatInteractiveShell shell = new FatInteractiveShell(fs);
+            shell.run();
+            
+        } catch (IOException e) {
+            System.err.println("Error opening FAT image: " + e.getMessage());
+            System.exit(1);
         }
     }
     
