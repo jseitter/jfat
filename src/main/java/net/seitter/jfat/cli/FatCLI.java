@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
+import java.util.ArrayList;
 
 /**
  * Command-line interface for JFAT - Java FAT Filesystem Library
@@ -102,8 +103,9 @@ public class FatCLI {
         System.out.println();
         System.out.println("  info <image>                     Show filesystem information");
         System.out.println();
-        System.out.println("  graph <image> [output.dot]       Export filesystem structure as DOT graph");
-        System.out.println("  dot <image> [output.dot]         Alias for graph");
+        System.out.println("  graph <image> [output.dot] [--expert]  Export filesystem structure as DOT graph");
+        System.out.println("                                   Use --expert for detailed FAT table and cluster chains");
+        System.out.println("  dot <image> [output.dot] [--expert]    Alias for graph");
         System.out.println();
         System.out.println("  help                             Show this help message");
         System.out.println("  version                          Show version information");
@@ -113,6 +115,7 @@ public class FatCLI {
         System.out.println("  java -jar jfat.jar list disk.img");
         System.out.println("  java -jar jfat.jar copy /home/user/file.txt disk.img /file.txt");
         System.out.println("  java -jar jfat.jar graph disk.img filesystem.dot");
+        System.out.println("  java -jar jfat.jar graph disk.img expert_view.dot --expert");
         System.out.println();
         System.out.println("Set JFAT_DEBUG=1 or -Djfat.debug=true for debug output");
     }
@@ -330,25 +333,43 @@ public class FatCLI {
     }
     
     private static void handleGraph(String[] args) throws IOException {
-        if (args.length < 1 || args.length > 2) {
-            System.err.println("Usage: graph <image> [output.dot]");
+        if (args.length < 1 || args.length > 3) {
+            System.err.println("Usage: graph <image> [output.dot] [--expert]");
             System.err.println("  If output file is not specified, writes to stdout");
+            System.err.println("  --expert: Include detailed FAT table and cluster chain information");
             System.exit(1);
         }
         
         String imagePath = args[0];
-        String outputPath = args.length > 1 ? args[1] : null;
+        String outputPath = null;
+        boolean expertMode = false;
+        
+        // Parse arguments
+        for (int i = 1; i < args.length; i++) {
+            if ("--expert".equals(args[i])) {
+                expertMode = true;
+            } else if (outputPath == null) {
+                outputPath = args[i];
+            }
+        }
         
         try (DeviceAccess device = new DeviceAccess(imagePath);
              FatFileSystem fs = FatFileSystem.mount(device)) {
             
             StringBuilder dot = new StringBuilder();
-            generateDotGraph(fs, dot);
+            if (expertMode) {
+                generateExpertDotGraph(fs, dot);
+            } else {
+                generateDotGraph(fs, dot);
+            }
             
             if (outputPath != null) {
                 Files.write(Paths.get(outputPath), dot.toString().getBytes());
                 System.out.println("✓ DOT graph exported to: " + outputPath);
                 System.out.println("  Render with: dot -Tpng " + outputPath + " -o filesystem.png");
+                if (expertMode) {
+                    System.out.println("  Expert mode: Includes FAT table and cluster chain details");
+                }
             } else {
                 System.out.println(dot.toString());
             }
@@ -518,6 +539,224 @@ public class FatCLI {
         dot.append("  \n");
         dot.append("  fs -> root;\n");
         dot.append("}\n");
+    }
+    
+    private static void generateExpertDotGraph(FatFileSystem fs, StringBuilder dot) throws IOException {
+        dot.append("digraph filesystem {\n");
+        dot.append("  rankdir=TB;\n");
+        dot.append("  node [shape=box];\n");
+        dot.append("  compound=true;\n");
+        dot.append("  \n");
+        
+        var bootSector = fs.getBootSector();
+        var fatTable = fs.getFatTable();
+        
+        // Filesystem header with detailed info
+        dot.append("  subgraph cluster_fs {\n");
+        dot.append("    label=\"FAT Filesystem Details\";\n");
+        dot.append("    style=filled;\n");
+        dot.append("    fillcolor=lightblue;\n");
+        dot.append("    \n");
+        dot.append("    fs_info [label=\"").append(bootSector.getFatType()).append(" Filesystem\\n");
+        dot.append("Total Size: ").append(formatSize(bootSector.getTotalSectors() * bootSector.getBytesPerSector())).append("\\n");
+        dot.append("Cluster Size: ").append(bootSector.getClusterSizeBytes()).append(" bytes\\n");
+        dot.append("Sectors/Cluster: ").append(bootSector.getSectorsPerCluster()).append("\\n");
+        dot.append("Reserved Sectors: ").append(bootSector.getReservedSectorCount()).append("\\n");
+        dot.append("FAT Tables: ").append(bootSector.getNumberOfFats()).append("\\n");
+        dot.append("Sectors/FAT: ").append(bootSector.getSectorsPerFat());
+        dot.append("\", shape=record, style=filled, fillcolor=white];\n");
+        dot.append("  }\n");
+        dot.append("  \n");
+        
+        // FAT table visualization
+        generateFatTableVisualization(fs, dot);
+        
+        // Directory structure with cluster details
+        dot.append("  subgraph cluster_dirs {\n");
+        dot.append("    label=\"Directory Structure\";\n");
+        dot.append("    style=filled;\n");
+        dot.append("    fillcolor=lightyellow;\n");
+        dot.append("    \n");
+        
+        ExpertNodeContext context = new ExpertNodeContext();
+        generateExpertDotNodes(fs.getRootDirectory(), "root", dot, context, fs);
+        
+        dot.append("  }\n");
+        dot.append("  \n");
+        
+        // Generate cluster chain connections
+        generateClusterChainConnections(context, dot);
+        
+        dot.append("}\n");
+    }
+    
+    private static void generateFatTableVisualization(FatFileSystem fs, StringBuilder dot) throws IOException {
+        var bootSector = fs.getBootSector();
+        var fatTable = fs.getFatTable();
+        
+        dot.append("  subgraph cluster_fat {\n");
+        dot.append("    label=\"FAT Table Summary\";\n");
+        dot.append("    style=filled;\n");
+        dot.append("    fillcolor=lightgray;\n");
+        dot.append("    \n");
+        
+        // Calculate total clusters
+        long dataSectors = bootSector.getTotalSectors() - 
+                          (bootSector.getReservedSectorCount() + 
+                           (bootSector.getNumberOfFats() * bootSector.getSectorsPerFat()) + 
+                           bootSector.getRootDirectorySectorCount());
+        long totalClusters = dataSectors / bootSector.getSectorsPerCluster();
+        
+        // Count used/free clusters
+        int usedClusters = 0;
+        int freeClusters = 0;
+        int badClusters = 0;
+        
+        for (long cluster = 2; cluster < totalClusters && cluster < 100; cluster++) { // Limit to first 100 for performance
+            try {
+                long entry = fatTable.getClusterEntry(cluster);
+                if (entry == 0) {
+                    freeClusters++;
+                } else if (entry == fatTable.getBadClusterMarker()) {
+                    badClusters++;
+                } else {
+                    usedClusters++;
+                }
+            } catch (IOException e) {
+                // Skip problematic clusters
+            }
+        }
+        
+        dot.append("    fat_summary [label=\"FAT Table Summary\\n");
+        dot.append("Total Clusters: ").append(totalClusters).append("\\n");
+        dot.append("Used Clusters: ").append(usedClusters).append("\\n");
+        dot.append("Free Clusters: ").append(freeClusters).append("\\n");
+        dot.append("Bad Clusters: ").append(badClusters).append("\\n");
+        dot.append("EOF Marker: 0x").append(Long.toHexString(fatTable.getEndOfChainMarker()).toUpperCase());
+        dot.append("\", shape=record, style=filled, fillcolor=white];\n");
+        dot.append("  }\n");
+        dot.append("  \n");
+    }
+    
+    private static class ExpertNodeContext {
+        int nodeCounter = 0;
+        StringBuilder clusterConnections = new StringBuilder();
+        
+        String getNextNodeId() {
+            return "node" + (++nodeCounter);
+        }
+        
+        void addClusterConnection(String fromNode, String toNode, String label) {
+            clusterConnections.append("  ").append(fromNode).append(" -> ").append(toNode);
+            clusterConnections.append(" [label=\"").append(label).append("\", style=dashed, color=red];\n");
+        }
+    }
+    
+    private static void generateExpertDotNodes(FatDirectory dir, String nodeId, StringBuilder dot, 
+                                             ExpertNodeContext context, FatFileSystem fs) throws IOException {
+        // Get cluster chain for this directory
+        List<Long> clusterChain = new ArrayList<>();
+        if (dir.getFirstCluster() != 0) {
+            clusterChain = fs.getFatTable().getClusterChain(dir.getFirstCluster());
+        }
+        
+        // Create node for directory with cluster information
+        dot.append("    ").append(nodeId).append(" [label=\"📁 ");
+        dot.append(dir.getName().isEmpty() ? "ROOT" : dir.getName()).append("\\n");
+        if (!clusterChain.isEmpty()) {
+            dot.append("First Cluster: ").append(dir.getFirstCluster()).append("\\n");
+            dot.append("Cluster Chain: ");
+            for (int i = 0; i < Math.min(clusterChain.size(), 5); i++) {
+                if (i > 0) dot.append("→");
+                dot.append(clusterChain.get(i));
+            }
+            if (clusterChain.size() > 5) {
+                dot.append("...(").append(clusterChain.size()).append(" total)");
+            }
+        } else {
+            dot.append("No clusters allocated");
+        }
+        dot.append("\", style=filled, fillcolor=lightyellow];\n");
+        
+        List<FatEntry> entries = dir.list();
+        for (FatEntry entry : entries) {
+            String childId = context.getNextNodeId();
+            
+            if (entry.isDirectory()) {
+                generateExpertDotNodes((FatDirectory) entry, childId, dot, context, fs);
+                dot.append("    ").append(nodeId).append(" -> ").append(childId);
+                dot.append(" [color=blue, label=\"contains\"];\n");
+            } else {
+                // File node with cluster details
+                List<Long> fileClusterChain = new ArrayList<>();
+                if (entry.getFirstCluster() != 0) {
+                    fileClusterChain = fs.getFatTable().getClusterChain(entry.getFirstCluster());
+                }
+                
+                dot.append("    ").append(childId).append(" [label=\"📄 ").append(entry.getName()).append("\\n");
+                dot.append("Size: ").append(formatSize(entry.getSize())).append("\\n");
+                if (!fileClusterChain.isEmpty()) {
+                    dot.append("First Cluster: ").append(entry.getFirstCluster()).append("\\n");
+                    dot.append("Clusters: ");
+                    for (int i = 0; i < Math.min(fileClusterChain.size(), 3); i++) {
+                        if (i > 0) dot.append("→");
+                        dot.append(fileClusterChain.get(i));
+                    }
+                    if (fileClusterChain.size() > 3) {
+                        dot.append("...(").append(fileClusterChain.size()).append(" total)");
+                    }
+                } else {
+                    dot.append("Empty file");
+                }
+                dot.append("\", style=filled, fillcolor=lightgreen];\n");
+                
+                dot.append("    ").append(nodeId).append(" -> ").append(childId);
+                dot.append(" [color=green, label=\"contains\"];\n");
+                
+                // Add cluster chain visualization for larger files
+                if (fileClusterChain.size() > 1) {
+                    generateClusterChainNodes(childId, fileClusterChain, dot, context);
+                }
+            }
+        }
+    }
+    
+    private static void generateClusterChainNodes(String fileNodeId, List<Long> clusterChain, 
+                                                StringBuilder dot, ExpertNodeContext context) {
+        if (clusterChain.size() <= 1) return;
+        
+        String prevClusterNodeId = null;
+        for (int i = 0; i < Math.min(clusterChain.size(), 8); i++) { // Limit visualization to 8 clusters
+            String clusterNodeId = context.getNextNodeId();
+            long cluster = clusterChain.get(i);
+            
+            dot.append("    ").append(clusterNodeId).append(" [label=\"Cluster\\n");
+            dot.append(cluster).append("\", shape=circle, style=filled, fillcolor=orange, fontsize=10];\n");
+            
+            if (i == 0) {
+                // Connect file to first cluster
+                context.addClusterConnection(fileNodeId, clusterNodeId, "data");
+            } else {
+                // Connect clusters in chain
+                context.addClusterConnection(prevClusterNodeId, clusterNodeId, "next");
+            }
+            
+            prevClusterNodeId = clusterNodeId;
+        }
+        
+        if (clusterChain.size() > 8) {
+            String endNodeId = context.getNextNodeId();
+            dot.append("    ").append(endNodeId).append(" [label=\"...\\n");
+            dot.append(clusterChain.size() - 8).append(" more\", shape=circle, style=filled, fillcolor=lightgray, fontsize=10];\n");
+            context.addClusterConnection(prevClusterNodeId, endNodeId, "...");
+        }
+    }
+    
+    private static void generateClusterChainConnections(ExpertNodeContext context, StringBuilder dot) {
+        if (context.clusterConnections.length() > 0) {
+            dot.append("  // Cluster chain connections\n");
+            dot.append(context.clusterConnections);
+        }
     }
     
     private static int generateDotNodes(FatDirectory dir, String nodeId, StringBuilder dot, int counter) throws IOException {
