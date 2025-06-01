@@ -332,9 +332,17 @@ The release workflow (`.github/workflows/release.yml`) handles:
 
 - **GitHub Package Registry**: Automatically publishes releases to GitHub Package Registry
 - **Multi-Artifact Publishing**: Creates and uploads main JAR, sources JAR, and Javadoc JAR
-- **Version Management**: Automatically updates version numbers from Git tags
+- **Version Management**: Automatically updates version numbers from Git tags using a dedicated `version.txt` file
 - **Release Assets**: Attaches all artifacts to GitHub releases
 - **Environment Protection**: Uses GitHub environments for deployment safety with optional approval gates
+
+## Version Management
+
+JFAT uses a simple and reliable versioning approach:
+- **Version File**: Project version is stored in `version.txt` 
+- **Gradle Integration**: `build.gradle` reads version from this file using `file('version.txt').text.trim()`
+- **Release Automation**: GitHub Actions simply overwrites `version.txt` during releases (no complex `sed` operations)
+- **Single Source of Truth**: One file contains the canonical version number
 
 ### GitHub Environments
 

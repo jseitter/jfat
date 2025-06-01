@@ -57,13 +57,12 @@ jobs:
         echo "VERSION=$VERSION" >> $GITHUB_ENV
         echo "Manual release version: $VERSION"
     
-    - name: Update version in build.gradle
+    - name: Update version in version.txt
       run: |
-        # Create temporary file and replace (works cross-platform)
-        sed "s|version = .*|version = '$VERSION'|" build.gradle > build.gradle.tmp
-        mv build.gradle.tmp build.gradle
-        echo "Updated build.gradle version to: $VERSION"
-        grep "version = " build.gradle
+        # Simply write the version to version.txt (no sed needed!)
+        echo "$VERSION" > version.txt
+        echo "Updated version.txt to: $VERSION"
+        cat version.txt
     
     - name: Run tests before release
       run: ./gradlew test
