@@ -46,23 +46,55 @@ jobs:
     - name: Set version from release tag
       if: github.event_name == 'release'
       run: |
-        VERSION=${GITHUB_REF#refs/tags/v}
+        # Extract version from tag and sanitize it
+        RAW_VERSION=${GITHUB_REF#refs/tags/}
+        # Remove 'v' prefix if present
+        RAW_VERSION=${RAW_VERSION#v}
+        # Replace any slashes with dots (not allowed in Maven versions)
+        VERSION=$(echo "$RAW_VERSION" | sed 's|/|.|g')
         echo "VERSION=$VERSION" >> $GITHUB_ENV
-        echo "Release version: $VERSION"
+        echo "Release version: $VERSION (from tag: ${GITHUB_REF#refs/tags/})"
     
     - name: Set version from input
       if: github.event_name == 'workflow_dispatch'
       run: |
-        VERSION=${{ github.event.inputs.version }}
+        # Sanitize manual input version
+        RAW_VERSION="${{ github.event.inputs.version }}"
+        # Replace any slashes with dots (not allowed in Maven versions)
+        VERSION=$(echo "$RAW_VERSION" | sed 's|/|.|g')
         echo "VERSION=$VERSION" >> $GITHUB_ENV
         echo "Manual release version: $VERSION"
+    
+    - name: Validate version format
+      run: |
+        # Ensure version is not empty and contains only valid characters
+        if [[ -z "$VERSION" ]]; then
+          echo "Error: VERSION is empty"
+          exit 1
+        fi
+        
+        # Check for invalid characters (no slashes, spaces, etc.)
+        if [[ "$VERSION" =~ [[:space:]/\\] ]]; then
+          echo "Error: VERSION contains invalid characters: $VERSION"
+          exit 1
+        fi
+        
+        echo "✅ Version validation passed: $VERSION"
     
     - name: Update version in version.txt
       run: |
         # Simply write the version to version.txt (no sed needed!)
+        echo "Current version.txt content:"
+        cat version.txt || echo "(file does not exist)"
+        
+        echo "Writing version: $VERSION"
         echo "$VERSION" > version.txt
-        echo "Updated version.txt to: $VERSION"
+        
+        echo "Updated version.txt content:"
         cat version.txt
+        
+        echo "Verifying Gradle can read the version:"
+        ./gradlew properties | grep "^version:" || echo "Could not verify version"
     
     - name: Run tests before release
       run: ./gradlew test
