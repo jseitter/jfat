@@ -13,6 +13,9 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://github.com/jseitter/jfat/packages
     permissions:
       contents: read
       packages: write
@@ -28,7 +31,7 @@ jobs:
         distribution: 'temurin'
     
     - name: Cache Gradle packages
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.gradle/caches
@@ -122,6 +125,7 @@ jobs:
         echo "- **Artifacts**: Main JAR, Sources JAR, Javadoc JAR" >> $GITHUB_STEP_SUMMARY
         echo "- **Published to**: GitHub Package Registry" >> $GITHUB_STEP_SUMMARY
         echo "- **Java Compatibility**: Java 11+" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment**: Production" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Usage" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`gradle" >> $GITHUB_STEP_SUMMARY

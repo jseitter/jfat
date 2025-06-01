@@ -15,30 +15,40 @@
         </suppress>
     -->
     
-    <!-- Suppress CVEs that are not applicable to library usage -->
+    <!-- Suppress specific Guava CVEs that are not applicable to our filesystem library use case -->
     <suppress>
         <notes><![CDATA[
-            Guava vulnerabilities related to server-side usage are not applicable 
-            to this library's use case as a filesystem library.
+            CVE-2020-8908: This vulnerability affects temporary file creation in a multi-user environment.
+            Not applicable to JFAT as it's a filesystem library that doesn't create temporary files 
+            in system temp directories in a multi-user context.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/com\.google\.guava/guava@.*$</packageUrl>
-        <vulnerabilityName regex="true">.*denial.of.service.*</vulnerabilityName>
+        <cve>CVE-2020-8908</cve>
+    </suppress>
+    
+    <suppress>
+        <notes><![CDATA[
+            CVE-2023-2976: This vulnerability is related to temp directory creation on Unix systems.
+            Not applicable to JFAT's use case as a FAT filesystem library.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/com\.google\.guava/guava@.*$</packageUrl>
+        <cve>CVE-2023-2976</cve>
     </suppress>
     
     <!-- Suppress test-only dependencies -->
     <suppress>
         <notes><![CDATA[
-            JUnit and Mockito vulnerabilities are not applicable in production
-            as they are test-only dependencies.
+            JUnit vulnerabilities are not applicable in production as it's a test-only dependency.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.junit\.jupiter/.*@.*$</packageUrl>
+        <vulnerabilityName regex="true">.*</vulnerabilityName>
     </suppress>
     
     <suppress>
         <notes><![CDATA[
-            Mockito vulnerabilities are not applicable in production
-            as it is a test-only dependency.
+            Mockito vulnerabilities are not applicable in production as it's a test-only dependency.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.mockito/.*@.*$</packageUrl>
+        <vulnerabilityName regex="true">.*</vulnerabilityName>
     </suppress>
 </suppressions> 

@@ -1,5 +1,14 @@
 # JFAT - Java FAT Filesystem Library
 
+[![CI](https://github.com/jseitter/jfat/actions/workflows/ci.yml/badge.svg)](https://github.com/jseitter/jfat/actions/workflows/ci.yml)
+[![Security](https://github.com/jseitter/jfat/actions/workflows/security.yml/badge.svg)](https://github.com/jseitter/jfat/actions/workflows/security.yml)
+[![Release](https://github.com/jseitter/jfat/actions/workflows/release.yml/badge.svg)](https://github.com/jseitter/jfat/actions/workflows/release.yml)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/jseitter/jfat)](https://github.com/jseitter/jfat/releases/latest)
+[![GitHub](https://img.shields.io/github/license/jseitter/jfat)](https://github.com/jseitter/jfat/blob/main/LICENSE)
+[![Java](https://img.shields.io/badge/Java-11%2B-orange)](https://www.oracle.com/java/)
+[![Gradle](https://img.shields.io/badge/Gradle-8.13-blue)](https://gradle.org/)
+[![codecov](https://codecov.io/gh/jseitter/jfat/branch/main/graph/badge.svg)](https://codecov.io/gh/jseitter/jfat)
+
 A Java library for reading and writing FAT (File Allocation Table) filesystems. JFAT provides APIs to work with FAT12, FAT16, and FAT32 filesystem formats.
 
 ## Features
@@ -325,6 +334,18 @@ The release workflow (`.github/workflows/release.yml`) handles:
 - **Multi-Artifact Publishing**: Creates and uploads main JAR, sources JAR, and Javadoc JAR
 - **Version Management**: Automatically updates version numbers from Git tags
 - **Release Assets**: Attaches all artifacts to GitHub releases
+- **Environment Protection**: Uses GitHub environments for deployment safety with optional approval gates
+
+### GitHub Environments
+
+JFAT uses GitHub environments for deployment safety and audit trails:
+
+- **Staging Environment**: Used during CI builds for verification (automatic)
+- **Production Environment**: Used for releases with optional manual approval gates
+
+As of [GitHub's May 15, 2025 update](https://github.blog/changelog/2025-05-15-new-releases-for-github-actions/), Actions environments are now available for all plans in private repositories, allowing for enhanced deployment protection.
+
+See `.github/environments.md` for detailed environment configuration instructions.
 
 ### Creating a Release
 

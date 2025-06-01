@@ -24,8 +24,8 @@ repositories {
 }
 
 dependencies {
-    // For low-level IO operations
-    implementation 'com.google.guava:guava:31.1-jre'
+    // For low-level IO operations - updated to latest version for security
+    implementation 'com.google.guava:guava:33.3.1-jre'
     
     // Testing
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.0'
