@@ -160,4 +160,67 @@ junit.xml
 test-results.xml
 
 # GitHub Actions cache
-.github/cache/ 
+.github/cache/
+
+# Frontend (Node.js/npm/React)
+# Node.js dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# npm/yarn package managers
+.npm/
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.yarn-integrity
+.pnp.*
+*.tgz
+
+# Frontend build outputs
+src/main/frontend/dist/
+src/main/frontend/build/
+
+# Static resources copied from frontend build  
+src/main/resources/static/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# Frontend development caches
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# Build tool caches
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Framework specific
+.next/
+.nuxt/
+.vuepress/dist
+.serverless/
+.fusebox/
+
+# Development tools
+.node_repl_history
+.vscode-test
+
+# Editor files (Windows/Visual Studio)  
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

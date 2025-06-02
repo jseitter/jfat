@@ -8,6 +8,7 @@ import net.seitter.jfat.core.FatType;
 import net.seitter.jfat.core.BootSector;
 import net.seitter.jfat.io.DeviceAccess;
 import net.seitter.jfat.util.DiskImageCreator;
+import net.seitter.jfat.web.FatWebServer;
 
 import java.io.File;
 import java.io.IOException;
@@ -63,6 +64,10 @@ public class FatCLI {
                 case "shell":
                     handleInteractive(Arrays.copyOfRange(args, 1, args.length));
                     break;
+                case "webserver":
+                case "web":
+                    handleWebServer(Arrays.copyOfRange(args, 1, args.length));
+                    break;
                 case "help":
                 case "-h":
                 case "--help":
@@ -115,6 +120,10 @@ public class FatCLI {
         System.out.println("  interactive <image>              Run interactive shell with FAT image");
         System.out.println("  shell <image>                    Alias for interactive");
         System.out.println();
+        System.out.println("  webserver <port> [--dev]          Start web server on specified port");
+        System.out.println("  web <port>                       Alias for webserver");
+        System.out.println("                                   Use --dev for development mode");
+        System.out.println();
         System.out.println("  help                             Show this help message");
         System.out.println("  version                          Show version information");
         System.out.println();
@@ -125,6 +134,14 @@ public class FatCLI {
         System.out.println("  java -jar jfat.jar graph disk.img filesystem.dot");
         System.out.println("  java -jar jfat.jar graph disk.img expert_view.dot --expert");
         System.out.println("  java -jar jfat.jar interactive disk.img");
+        System.out.println("  java -jar jfat.jar webserver 8080");
+        System.out.println("  java -jar jfat.jar web 3000 --dev");
+        System.out.println();
+        System.out.println("Web Interface:");
+        System.out.println("  The web server provides a browser-based interface for managing FAT images.");
+        System.out.println("  After starting the server, open http://localhost:<port> in your browser.");
+        System.out.println("  Production mode: All assets served from JAR file");
+        System.out.println("  Development mode: Frontend must be started separately (see docs/web-interface.md)");
         System.out.println();
         System.out.println("Set JFAT_DEBUG=1 or -Djfat.debug=true for debug output");
     }
@@ -464,6 +481,57 @@ public class FatCLI {
             System.err.println("Error opening FAT image: " + e.getMessage());
             System.exit(1);
         }
+    }
+    
+    private static void handleWebServer(String[] args) throws IOException {
+        if (args.length < 1 || args.length > 2) {
+            System.err.println("Usage: webserver <port> [--dev]");
+            System.err.println("  port:  Web server port");
+            System.err.println("  --dev: Start in development mode (optional)");
+            System.exit(1);
+        }
+        
+        int port;
+        boolean developmentMode = false;
+        
+        try {
+            port = Integer.parseInt(args[0]);
+        } catch (NumberFormatException e) {
+            System.err.println("Error: Invalid port: " + args[0]);
+            System.exit(1);
+            return;
+        }
+        
+        if (args.length == 2 && "--dev".equals(args[1])) {
+            developmentMode = true;
+        } else if (args.length == 2) {
+            System.err.println("Error: Unknown flag: " + args[1]);
+            System.err.println("Use --dev for development mode");
+            System.exit(1);
+        }
+        
+        if (port < 1 || port > 65535) {
+            System.err.println("Error: Port must be between 1 and 65535");
+            System.exit(1);
+        }
+        
+        System.out.println("Starting JFAT Web Server on port " + port + "...");
+        if (developmentMode) {
+            System.out.println("Development mode enabled");
+            System.out.println("Note: You need to start the frontend dev server separately:");
+            System.out.println("  cd src/main/frontend && npm run dev");
+        }
+        System.out.println("Press Ctrl+C to stop the server");
+        
+        FatWebServer server = new FatWebServer(port, developmentMode);
+        
+        // Graceful shutdown
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("\nShutting down JFAT Web Server...");
+            server.stop();
+        }));
+        
+        server.start();
     }
     
     // Helper methods

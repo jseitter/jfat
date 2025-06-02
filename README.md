@@ -17,6 +17,7 @@ A comprehensive Java library for reading and writing FAT (File Allocation Table)
 - **📁 Long Filename Support**: Full Unicode LFN support with automatic short name generation  
 - **⚡ Intelligent Cluster Sizing**: Microsoft-compliant cluster size optimization for peak performance
 - **🖥️ Command-Line Interface**: Comprehensive CLI with filesystem operations and analysis
+- **🌐 Web Interface**: Modern browser-based interface with real-time visualization
 - **🔍 Advanced Analysis**: Expert-mode visualization with cluster chain mapping and FAT table analysis
 - **💻 Interactive Shell**: MS-DOS-like commands for intuitive filesystem navigation
 - **🏗️ Device Flexibility**: Support for disk images, block devices, and custom storage backends
@@ -59,7 +60,29 @@ java -jar jfat.jar info disk.img                 # Shows cluster size optimizati
 
 # Interactive exploration
 java -jar jfat.jar interactive disk.img
+
+# Start web interface
+java -jar jfat.jar webserver 8080               # Open http://localhost:8080
 ```
+
+### Web Interface
+
+Launch the modern browser-based interface for filesystem management:
+
+```bash
+# Start web server (production mode)
+java -jar jfat.jar webserver 8080
+
+# Start in development mode
+java -jar jfat.jar web 3000 --dev
+```
+
+The web interface provides:
+- **📊 Real-time Dashboard**: Filesystem statistics and health monitoring
+- **📁 File Browser**: Drag-and-drop file management with directory navigation
+- **📈 Graph Visualization**: Interactive cluster allocation and fragmentation analysis
+- **⚙️ Image Manager**: Create, delete, and analyze FAT images
+- **🔬 Expert Mode**: Detailed FAT table visualization for digital forensics
 
 ### Library Usage
 
@@ -134,6 +157,7 @@ FatFile emojiFile = root.createFile("My 🚀 Project File.doc");
 ## 📚 Documentation
 
 - **[📋 CLI Reference](docs/cli-reference.md)**: Complete command-line interface guide
+- **[🌐 Web Interface](docs/web-interface.md)**: Browser-based filesystem management
 - **[🔧 API Guide](docs/api-guide.md)**: Programmatic usage and integration examples
 - **[🧪 Testing Guide](docs/testing.md)**: Test suite structure and custom testing
 - **[🔨 Development Guide](docs/development.md)**: Building from source and contributing

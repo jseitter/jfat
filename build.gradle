@@ -28,6 +28,12 @@ dependencies {
     // For low-level IO operations - updated to latest version for security
     implementation 'com.google.guava:guava:33.3.1-jre'
     
+    // Web server and API
+    implementation 'io.javalin:javalin:5.6.3'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.1'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.16.1'
+    implementation 'org.slf4j:slf4j-simple:2.0.9'
+    
     // For interactive command-line interface
     implementation 'org.jline:jline-terminal:3.21.0'
     implementation 'org.jline:jline-reader:3.21.0'
@@ -248,4 +254,57 @@ dependencyCheck {
     data {
         directory = "${buildDir}/dependency-check-data"
     }
+}
+
+// Frontend build tasks
+task installFrontendDeps(type: Exec) {
+    group = 'Frontend'
+    description = 'Install frontend dependencies'
+    workingDir 'src/main/frontend'
+    commandLine 'npm', 'install'
+    
+    inputs.file('src/main/frontend/package.json')
+    outputs.dir('src/main/frontend/node_modules')
+}
+
+task buildFrontend(type: Exec) {
+    group = 'Frontend'
+    description = 'Build the React frontend'
+    dependsOn installFrontendDeps
+    workingDir 'src/main/frontend'
+    commandLine 'npm', 'run', 'build'
+    
+    inputs.dir('src/main/frontend/src')
+    inputs.file('src/main/frontend/package.json')
+    inputs.file('src/main/frontend/vite.config.ts')
+    outputs.dir('src/main/frontend/dist')
+}
+
+task copyFrontend(type: Copy) {
+    group = 'Frontend'
+    description = 'Copy frontend build to resources'
+    dependsOn buildFrontend
+    from 'src/main/frontend/dist'
+    into 'src/main/resources/static'
+}
+
+// Make sure frontend is built before processing resources
+processResources.dependsOn copyFrontend
+
+// Task to run the web server
+task runWebServer(type: JavaExec) {
+    group = 'Application'
+    description = 'Run the JFAT web server'
+    mainClass = 'net.seitter.jfat.web.FatWebServer'
+    classpath = sourceSets.main.runtimeClasspath
+    args '8080'
+}
+
+// Task to run the web server in development mode
+task runWebServerDev(type: JavaExec) {
+    group = 'Application'
+    description = 'Run the JFAT web server in development mode'
+    mainClass = 'net.seitter.jfat.web.FatWebServer'
+    classpath = sourceSets.main.runtimeClasspath
+    args '8080', '--dev'
 } 
