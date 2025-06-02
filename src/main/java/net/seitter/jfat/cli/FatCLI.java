@@ -5,6 +5,7 @@ import net.seitter.jfat.core.FatDirectory;
 import net.seitter.jfat.core.FatFile;
 import net.seitter.jfat.core.FatEntry;
 import net.seitter.jfat.core.FatType;
+import net.seitter.jfat.core.BootSector;
 import net.seitter.jfat.io.DeviceAccess;
 import net.seitter.jfat.util.DiskImageCreator;
 
@@ -315,17 +316,39 @@ public class FatCLI {
             System.out.println("FAT Filesystem Information");
             System.out.println("=".repeat(50));
             System.out.println("Image file: " + imagePath);
-            System.out.println("FAT type: " + bootSector.getFatType());
-            System.out.println("Bytes per sector: " + bootSector.getBytesPerSector());
-            System.out.println("Sectors per cluster: " + bootSector.getSectorsPerCluster());
-            System.out.println("Cluster size: " + bootSector.getClusterSizeBytes() + " bytes");
+            System.out.println();
+            
+            // Display detailed cluster size information
+            System.out.println(bootSector.getClusterSizeInfo());
+            System.out.println();
+            
+            // Additional filesystem details
+            System.out.println("Filesystem Details:");
+            System.out.println("-".repeat(30));
             System.out.println("Reserved sectors: " + bootSector.getReservedSectorCount());
             System.out.println("Number of FATs: " + bootSector.getNumberOfFats());
             System.out.println("Root entries: " + bootSector.getRootEntryCount() + 
                              (bootSector.getFatType() == FatType.FAT32 ? " (unlimited)" : ""));
-            System.out.println("Total sectors: " + bootSector.getTotalSectors());
             System.out.println("Sectors per FAT: " + bootSector.getSectorsPerFat());
-            System.out.println("Total size: " + formatSize(bootSector.getTotalSectors() * bootSector.getBytesPerSector()));
+            
+            // Cluster size validation status
+            System.out.println();
+            System.out.println("Cluster Size Validation:");
+            System.out.println("-".repeat(30));
+            boolean validSectors = BootSector.isValidSectorsPerCluster(bootSector.getSectorsPerCluster());
+            boolean validBytes = BootSector.isValidBytesPerSector(bootSector.getBytesPerSector());
+            long clusterSize = (long) bootSector.getBytesPerSector() * bootSector.getSectorsPerCluster();
+            boolean validClusterSize = clusterSize <= 32 * 1024 * 1024;
+            
+            System.out.println("Sectors per cluster valid: " + (validSectors ? "✓ YES" : "✗ NO"));
+            System.out.println("Bytes per sector valid: " + (validBytes ? "✓ YES" : "✗ NO"));
+            System.out.println("Cluster size ≤ 32MB: " + (validClusterSize ? "✓ YES" : "✗ NO"));
+            
+            if (validSectors && validBytes && validClusterSize) {
+                System.out.println("Overall validation: ✓ PASSED");
+            } else {
+                System.out.println("Overall validation: ✗ FAILED");
+            }
             
             // Count files and directories
             System.out.println();

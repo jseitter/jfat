@@ -32,7 +32,7 @@ public class BootSector {
      * Creates a new BootSector by reading from the given device.
      *
      * @param device The device to read from
-     * @throws IOException If the boot sector cannot be read
+     * @throws IOException If the boot sector cannot be read or is invalid
      */
     public BootSector(DeviceAccess device) throws IOException {
         // Read the boot sector (usually the first 512 bytes)
@@ -43,13 +43,16 @@ public class BootSector {
     /**
      * Parses the boot sector data to extract filesystem information.
      */
-    private void parse() {
+    private void parse() throws IOException {
         // Basic parameters from the BPB (BIOS Parameter Block)
         bytesPerSector = FatUtils.readUInt16(rawData, 11);
         sectorsPerCluster = rawData[13] & 0xFF;
         reservedSectorCount = FatUtils.readUInt16(rawData, 14);
         numberOfFats = rawData[16] & 0xFF;
         rootEntryCount = FatUtils.readUInt16(rawData, 17);
+        
+        // Validate critical boot sector parameters
+        validateBootSectorParameters();
         
         // Total sectors (16-bit field or 32-bit field)
         int totalSectors16 = FatUtils.readUInt16(rawData, 19);
@@ -85,6 +88,109 @@ public class BootSector {
             fatType = FatType.FAT16;
         } else {
             fatType = FatType.FAT12;
+        }
+    }
+    
+    /**
+     * Validates critical boot sector parameters according to FAT specification.
+     * 
+     * @throws IOException If any parameter is invalid
+     */
+    private void validateBootSectorParameters() throws IOException {
+        // Validate bytes per sector
+        if (!isValidBytesPerSector(bytesPerSector)) {
+            throw new IOException("Invalid bytes per sector: " + bytesPerSector + 
+                                ". Valid values are: 512, 1024, 2048, 4096");
+        }
+        
+        // Validate sectors per cluster
+        if (!isValidSectorsPerCluster(sectorsPerCluster)) {
+            throw new IOException("Invalid sectors per cluster: " + sectorsPerCluster + 
+                                ". Must be a power of 2 between 1 and 128 inclusive");
+        }
+        
+        // Validate cluster size doesn't exceed 32MB
+        long clusterSize = (long) bytesPerSector * sectorsPerCluster;
+        if (clusterSize > 32 * 1024 * 1024) {
+            throw new IOException("Cluster size too large: " + clusterSize + " bytes. " +
+                                "Maximum cluster size is 32MB");
+        }
+        
+        // Validate number of FATs
+        if (numberOfFats < 1 || numberOfFats > 2) {
+            throw new IOException("Invalid number of FATs: " + numberOfFats + 
+                                ". Valid values are 1 or 2");
+        }
+    }
+    
+    /**
+     * Checks if the given bytes per sector value is valid according to FAT specification.
+     * 
+     * @param bytesPerSector The bytes per sector value to validate
+     * @return True if valid, false otherwise
+     */
+    public static boolean isValidBytesPerSector(int bytesPerSector) {
+        return bytesPerSector == 512 || bytesPerSector == 1024 || 
+               bytesPerSector == 2048 || bytesPerSector == 4096;
+    }
+    
+    /**
+     * Checks if the given sectors per cluster value is valid according to FAT specification.
+     * Sectors per cluster must be a power of 2 between 1 and 128 inclusive.
+     * 
+     * @param sectorsPerCluster The sectors per cluster value to validate
+     * @return True if valid, false otherwise
+     */
+    public static boolean isValidSectorsPerCluster(int sectorsPerCluster) {
+        // Must be between 1 and 128 inclusive
+        if (sectorsPerCluster < 1 || sectorsPerCluster > 128) {
+            return false;
+        }
+        
+        // Must be a power of 2
+        return (sectorsPerCluster & (sectorsPerCluster - 1)) == 0;
+    }
+    
+    /**
+     * Calculates the optimal sectors per cluster for a given volume size and FAT type
+     * following Microsoft's recommendations.
+     * 
+     * @param volumeSizeBytes The total volume size in bytes
+     * @param fatType The FAT type
+     * @param bytesPerSector The bytes per sector
+     * @return The recommended sectors per cluster
+     */
+    public static int getRecommendedSectorsPerCluster(long volumeSizeBytes, FatType fatType, int bytesPerSector) {
+        long volumeSizeMB = volumeSizeBytes / (1024 * 1024);
+        
+        // Convert to sectors for easier calculation
+        long volumeSectors = volumeSizeBytes / bytesPerSector;
+        
+        switch (fatType) {
+            case FAT12:
+                // FAT12 volumes are typically small (≤ 4MB)
+                return 1;
+                
+            case FAT16:
+                // FAT16 recommendations based on Microsoft specifications
+                if (volumeSizeMB <= 16) return 2;      // 1K cluster
+                if (volumeSizeMB <= 128) return 4;     // 2K cluster  
+                if (volumeSizeMB <= 256) return 8;     // 4K cluster
+                if (volumeSizeMB <= 512) return 16;    // 8K cluster
+                if (volumeSizeMB <= 1024) return 32;   // 16K cluster
+                if (volumeSizeMB <= 2048) return 64;   // 32K cluster
+                return 64; // Maximum for FAT16
+                
+            case FAT32:
+                // FAT32 recommendations based on Microsoft specifications
+                if (volumeSizeMB <= 260) return 1;     // 0.5K cluster (for 512 byte sectors)
+                if (volumeSizeMB <= 8192) return 8;    // 4K cluster
+                if (volumeSizeMB <= 16384) return 16;  // 8K cluster  
+                if (volumeSizeMB <= 32768) return 32;  // 16K cluster
+                return 64; // 32K cluster for > 32GB
+                
+            default:
+                return 1;
         }
     }
     
@@ -229,5 +335,42 @@ public class BootSector {
      */
     public int getClusterSizeBytes() {
         return bytesPerSector * sectorsPerCluster;
+    }
+    
+    /**
+     * Gets detailed cluster size information for this filesystem.
+     * 
+     * @return A formatted string with cluster size details
+     */
+    public String getClusterSizeInfo() {
+        StringBuilder info = new StringBuilder();
+        info.append("Filesystem Type: ").append(fatType).append("\n");
+        info.append("Bytes per Sector: ").append(bytesPerSector).append("\n");
+        info.append("Sectors per Cluster: ").append(sectorsPerCluster).append("\n");
+        info.append("Cluster Size: ").append(getClusterSizeBytes()).append(" bytes");
+        
+        // Format cluster size in human-readable form
+        int clusterSizeBytes = getClusterSizeBytes();
+        if (clusterSizeBytes >= 1024 * 1024) {
+            info.append(" (").append(clusterSizeBytes / (1024 * 1024)).append(" MB)");
+        } else if (clusterSizeBytes >= 1024) {
+            info.append(" (").append(clusterSizeBytes / 1024).append(" KB)");
+        }
+        
+        info.append("\n");
+        info.append("Total Sectors: ").append(totalSectors).append("\n");
+        info.append("Total Size: ");
+        long totalSizeBytes = totalSectors * bytesPerSector;
+        if (totalSizeBytes >= 1024 * 1024 * 1024) {
+            info.append(totalSizeBytes / (1024 * 1024 * 1024)).append(" GB");
+        } else if (totalSizeBytes >= 1024 * 1024) {
+            info.append(totalSizeBytes / (1024 * 1024)).append(" MB");
+        } else if (totalSizeBytes >= 1024) {
+            info.append(totalSizeBytes / 1024).append(" KB");
+        } else {
+            info.append(totalSizeBytes).append(" bytes");
+        }
+        
+        return info.toString();
     }
 } 
