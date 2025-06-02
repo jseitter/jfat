@@ -7,7 +7,10 @@ import net.seitter.jfat.core.FatEntry;
 
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
-import org.jline.reader.impl.completer.StringsCompleter;
+import org.jline.reader.Completer;
+import org.jline.reader.Candidate;
+import org.jline.reader.LineReader.Option;
+import org.jline.reader.ParsedLine;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 
@@ -21,6 +24,7 @@ import java.util.ArrayList;
 
 /**
  * Interactive command-line shell for FAT filesystems with MSDOS-like commands
+ * and comprehensive tab autocompletion
  */
 public class FatInteractiveShell {
     
@@ -50,8 +54,243 @@ public class FatInteractiveShell {
         
         this.reader = LineReaderBuilder.builder()
                 .terminal(terminal)
-                .completer(new StringsCompleter(COMMANDS))
+                .completer(new FatCompleter())
+                .option(Option.CASE_INSENSITIVE, true)
+                .option(Option.AUTO_FRESH_LINE, true)
                 .build();
+    }
+    
+    /**
+     * Custom completer that provides intelligent autocompletion for FAT filesystem navigation
+     */
+    private class FatCompleter implements Completer {
+        @Override
+        public void complete(LineReader reader, ParsedLine line, List<Candidate> candidates) {
+            String buffer = line.line();
+            List<String> words = line.words();
+            int wordIndex = line.wordIndex();
+            String word = line.word();
+            
+            try {
+                if (words.isEmpty() || wordIndex == 0) {
+                    // Complete command names
+                    completeCommands(word, candidates);
+                } else {
+                    // Complete based on command context
+                    String command = words.get(0).toUpperCase();
+                    completeForCommand(command, word, wordIndex, candidates);
+                }
+            } catch (Exception e) {
+                // Silently handle completion errors
+                if (System.getProperty("jfat.debug") != null) {
+                    System.err.println("Completion error: " + e.getMessage());
+                }
+            }
+        }
+        
+        private void completeCommands(String prefix, List<Candidate> candidates) {
+            for (String command : COMMANDS) {
+                if (command.toLowerCase().startsWith(prefix.toLowerCase())) {
+                    candidates.add(new Candidate(command.toLowerCase(), command, null, null, null, null, true));
+                }
+            }
+        }
+        
+        private void completeForCommand(String command, String prefix, int wordIndex, List<Candidate> candidates) 
+                throws IOException {
+            switch (command) {
+                case "DIR":
+                case "LS":
+                case "CD":
+                case "RD":
+                case "RMDIR":
+                    // Complete directory names only
+                    completeDirectories(prefix, candidates);
+                    break;
+                    
+                case "TYPE":
+                case "CAT":
+                case "DEL":
+                case "DELETE":
+                    // Complete file names only
+                    completeFiles(prefix, candidates);
+                    break;
+                    
+                case "COPY":
+                case "CP":
+                    if (wordIndex == 1) {
+                        // Source: complete both files and local paths
+                        completeFiles(prefix, candidates);
+                        completeLocalPaths(prefix, candidates);
+                    } else if (wordIndex == 2) {
+                        // Destination: complete directories and files
+                        completeFilesAndDirectories(prefix, candidates);
+                    }
+                    break;
+                    
+                case "MD":
+                case "MKDIR":
+                    // For new directories, just complete parent paths
+                    completeDirectoryPaths(prefix, candidates);
+                    break;
+                    
+                default:
+                    // Default to completing files and directories
+                    completeFilesAndDirectories(prefix, candidates);
+                    break;
+            }
+        }
+        
+        private void completeDirectories(String prefix, List<Candidate> candidates) throws IOException {
+            completeEntries(prefix, candidates, true, false);
+        }
+        
+        private void completeFiles(String prefix, List<Candidate> candidates) throws IOException {
+            completeEntries(prefix, candidates, false, true);
+        }
+        
+        private void completeFilesAndDirectories(String prefix, List<Candidate> candidates) throws IOException {
+            completeEntries(prefix, candidates, true, true);
+        }
+        
+        private void completeDirectoryPaths(String prefix, List<Candidate> candidates) throws IOException {
+            // For directory creation, complete parent directory paths
+            if (prefix.contains("/") || prefix.contains("\\")) {
+                String parentPath = prefix.substring(0, prefix.lastIndexOf("/"));
+                if (parentPath.isEmpty()) parentPath = "/";
+                
+                try {
+                    FatEntry parentEntry = resolveEntry(parentPath);
+                    if (parentEntry != null && parentEntry.isDirectory()) {
+                        FatDirectory parentDir = (FatDirectory) parentEntry;
+                        for (FatEntry entry : parentDir.list()) {
+                            if (entry.isDirectory()) {
+                                String fullPath = parentPath + "/" + entry.getName();
+                                if (fullPath.toLowerCase().startsWith(prefix.toLowerCase())) {
+                                    candidates.add(new Candidate(fullPath, entry.getName(), "dir", null, null, null, true));
+                                }
+                            }
+                        }
+                    }
+                } catch (IOException e) {
+                    // Ignore and continue
+                }
+            } else {
+                completeDirectories(prefix, candidates);
+            }
+        }
+        
+        private void completeEntries(String prefix, List<Candidate> candidates, 
+                                   boolean includeDirs, boolean includeFiles) throws IOException {
+            
+            // Handle absolute vs relative paths
+            FatDirectory targetDir = currentDirectory;
+            String searchPrefix = prefix;
+            String pathPrefix = "";
+            
+            if (prefix.startsWith("/")) {
+                // Absolute path
+                targetDir = fileSystem.getRootDirectory();
+                searchPrefix = prefix.substring(1);
+                pathPrefix = "/";
+            }
+            
+            // Handle path separators
+            if (searchPrefix.contains("/")) {
+                String[] pathParts = searchPrefix.split("/");
+                StringBuilder currentPath = new StringBuilder(pathPrefix);
+                
+                // Navigate to the parent directory
+                for (int i = 0; i < pathParts.length - 1; i++) {
+                    if (!pathParts[i].isEmpty()) {
+                        FatEntry entry = targetDir.getEntry(pathParts[i]);
+                        if (entry != null && entry.isDirectory()) {
+                            targetDir = (FatDirectory) entry;
+                            currentPath.append(pathParts[i]).append("/");
+                        } else {
+                            return; // Path doesn't exist
+                        }
+                    }
+                }
+                
+                pathPrefix = currentPath.toString();
+                searchPrefix = pathParts[pathParts.length - 1];
+            }
+            
+            // Add special directory entries
+            if (includeDirs && !prefix.startsWith("/")) {
+                if ("..".startsWith(searchPrefix.toLowerCase())) {
+                    candidates.add(new Candidate("..", "..", "parent", null, null, null, true));
+                }
+                if ("/".startsWith(searchPrefix.toLowerCase())) {
+                    candidates.add(new Candidate("/", "/", "root", null, null, null, true));
+                }
+            }
+            
+            // List entries in target directory
+            try {
+                for (FatEntry entry : targetDir.list()) {
+                    boolean isDirectory = entry.isDirectory();
+                    
+                    if ((isDirectory && includeDirs) || (!isDirectory && includeFiles)) {
+                        String entryName = entry.getName();
+                        
+                        if (entryName.toLowerCase().startsWith(searchPrefix.toLowerCase())) {
+                            String fullPath = pathPrefix + entryName;
+                            String suffix = isDirectory ? "/" : "";
+                            String description = isDirectory ? "dir" : formatSize(entry.getSize());
+                            
+                            candidates.add(new Candidate(
+                                fullPath + suffix, 
+                                entryName + suffix, 
+                                description, 
+                                null, 
+                                null, 
+                                null, 
+                                true
+                            ));
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                // Ignore directory listing errors during completion
+            }
+        }
+        
+        private void completeLocalPaths(String prefix, List<Candidate> candidates) {
+            // Complete local filesystem paths for COPY command source
+            if (isLocalPath(prefix)) {
+                try {
+                    Path path = Paths.get(prefix);
+                    Path parent = path.getParent();
+                    String fileName = path.getFileName() != null ? path.getFileName().toString() : "";
+                    
+                    if (parent != null && Files.exists(parent) && Files.isDirectory(parent)) {
+                        Files.list(parent)
+                                .filter(p -> p.getFileName().toString().toLowerCase()
+                                        .startsWith(fileName.toLowerCase()))
+                                .forEach(p -> {
+                                    String name = p.getFileName().toString();
+                                    boolean isDir = Files.isDirectory(p);
+                                    String suffix = isDir ? "/" : "";
+                                    String description = isDir ? "local-dir" : "local-file";
+                                    
+                                    candidates.add(new Candidate(
+                                        p.toString() + suffix,
+                                        name + suffix,
+                                        description,
+                                        null,
+                                        null,
+                                        null,
+                                        true
+                                    ));
+                                });
+                    }
+                } catch (Exception e) {
+                    // Ignore local path completion errors
+                }
+            }
+        }
     }
     
     /**
@@ -89,6 +328,7 @@ public class FatInteractiveShell {
     private void printWelcome() {
         System.out.println("JFAT Interactive Shell - FAT Filesystem Navigator");
         System.out.println("Type 'HELP' for available commands or 'EXIT' to quit");
+        System.out.println("Use TAB for autocompletion of commands and paths");
         System.out.println("Current filesystem: " + fileSystem.getBootSector().getFatType());
         System.out.println();
     }
@@ -433,6 +673,12 @@ public class FatInteractiveShell {
         System.out.println("  CLS                 - Clear screen (alias: CLEAR)");
         System.out.println("  HELP                - Show this help");
         System.out.println("  EXIT                - Exit interactive shell (alias: QUIT)");
+        System.out.println();
+        System.out.println("Tab Autocompletion:");
+        System.out.println("  - Press TAB to complete commands and file/directory names");
+        System.out.println("  - Context-aware completion based on command type");
+        System.out.println("  - Supports both absolute (/path) and relative (path) paths");
+        System.out.println("  - Local file completion for COPY source paths");
         System.out.println();
         System.out.println("Special paths:");
         System.out.println("  /                   - Root directory");
