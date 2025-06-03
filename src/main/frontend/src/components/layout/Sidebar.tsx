@@ -28,13 +28,11 @@ function Sidebar() {
       key: '/filesystem',
       icon: <FolderOpenOutlined />,
       label: 'Filesystem Browser',
-      disabled: true, // Will be enabled when image is selected
     },
     {
       key: '/graph',
       icon: <PartitionOutlined />,
       label: 'Graph Visualizer',
-      disabled: true, // Will be enabled when image is selected
     },
   ];
 

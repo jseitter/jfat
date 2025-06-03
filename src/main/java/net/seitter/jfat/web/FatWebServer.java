@@ -48,20 +48,28 @@ public class FatWebServer {
             config.jsonMapper(new JacksonJsonMapper(mapper));
             
             // CORS configuration
+            // we use this for development mode only
+            if(developmentMode) {
             config.plugins.enableCors(cors -> {
                 cors.add(rule -> {
                     rule.allowHost("localhost:3000"); // For development
                     rule.allowCredentials = true;
+                    });
                 });
-            });
+            }
             
             // Static files
             if (developmentMode) {
                 System.out.println("Running in development mode - serving static files from filesystem");
                 // In development, let Vite handle static files
             } else {
-                // In production, serve from classpath
-                config.staticFiles.add("/static", Location.CLASSPATH);
+                // In production, serve only assets from static directory
+                // This maps /assets/* to static/assets/* in the JAR
+                config.staticFiles.add(staticFiles -> {
+                    staticFiles.hostedPath = "/";        // Serve at /
+                    staticFiles.directory = "/static";  // From /static in JAR  
+                    staticFiles.location = Location.CLASSPATH;
+                });
             }
             
             // Enable request logging in development
@@ -103,18 +111,50 @@ public class FatWebServer {
         // WebSocket endpoint
         app.ws("/ws", this::configureWebSocket);
         
-        // SPA fallback - serve index.html for all non-API routes
-        app.get("/{path...}", ctx -> {
-            String path = ctx.path();
-            if (!path.startsWith("/api") && !path.startsWith("/ws")) {
-                if (developmentMode) {
-                    // In development, redirect to Vite dev server
-                    ctx.redirect("http://localhost:3000" + path);
-                } else {
-                    // In production, serve index.html
-                    ctx.result(getClass().getClassLoader().getResourceAsStream("static/index.html"));
-                    ctx.contentType("text/html");
-                }
+        // Serve index.html at root path
+        app.get("/", ctx -> {
+            if (developmentMode) {
+                ctx.redirect("http://localhost:3000/");
+            } else {
+                ctx.result(getClass().getClassLoader().getResourceAsStream("static/index.html"));
+                ctx.contentType("text/html");
+            }
+        });
+        
+        // SPA fallback for common frontend routes
+        app.get("/dashboard", ctx -> {
+            if (developmentMode) {
+                ctx.redirect("http://localhost:3000/dashboard");
+            } else {
+                ctx.result(getClass().getClassLoader().getResourceAsStream("static/index.html"));
+                ctx.contentType("text/html");
+            }
+        });
+        
+        app.get("/images", ctx -> {
+            if (developmentMode) {
+                ctx.redirect("http://localhost:3000/images");
+            } else {
+                ctx.result(getClass().getClassLoader().getResourceAsStream("static/index.html"));
+                ctx.contentType("text/html");
+            }
+        });
+        
+        app.get("/filesystem/*", ctx -> {
+            if (developmentMode) {
+                ctx.redirect("http://localhost:3000" + ctx.path());
+            } else {
+                ctx.result(getClass().getClassLoader().getResourceAsStream("static/index.html"));
+                ctx.contentType("text/html");
+            }
+        });
+        
+        app.get("/graph/*", ctx -> {
+            if (developmentMode) {
+                ctx.redirect("http://localhost:3000" + ctx.path());
+            } else {
+                ctx.result(getClass().getClassLoader().getResourceAsStream("static/index.html"));
+                ctx.contentType("text/html");
             }
         });
         

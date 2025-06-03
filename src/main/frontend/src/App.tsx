@@ -31,7 +31,9 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/images" element={<ImageManager />} />
+              <Route path="/filesystem" element={<FilesystemBrowser />} />
               <Route path="/filesystem/:imageName/*" element={<FilesystemBrowser />} />
+              <Route path="/graph" element={<GraphVisualizer />} />
               <Route path="/graph/:imageName" element={<GraphVisualizer />} />
             </Routes>
           </Content>

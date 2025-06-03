@@ -1,6 +1,9 @@
 package net.seitter.jfat.web.api;
 
 import net.seitter.jfat.core.FatFileSystem;
+import net.seitter.jfat.core.FatDirectory;
+import net.seitter.jfat.core.FatEntry;
+import net.seitter.jfat.core.FatFile;
 import net.seitter.jfat.core.BootSector;
 import net.seitter.jfat.core.FatTable;
 import net.seitter.jfat.io.DeviceAccess;
@@ -9,6 +12,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -110,31 +115,22 @@ public class GraphApiController {
         StringWriter writer = new StringWriter();
         PrintWriter out = new PrintWriter(writer);
         
-        out.println("digraph FatFilesystem {");
-        out.println("  rankdir=TB;");
-        out.println("  node [shape=box, style=filled];");
-        out.println();
+        out.println("digraph filesystem {");
+        out.println("  rankdir=LR;");
+        out.println("  node [shape=box];");
+        out.println("  ");
+        out.println("  // Filesystem info");
+        out.printf("  fs [label=\"%s\\n%s\", shape=ellipse, style=filled, fillcolor=lightblue];%n",
+                fs.getBootSector().getFatType(),
+                formatSize(fs.getBootSector().getTotalSectors() * fs.getBootSector().getBytesPerSector()));
+        out.println("  ");
         
-        // Add filesystem info
-        BootSector bootSector = fs.getBootSector();
-        out.println("  subgraph cluster_info {");
-        out.println("    label=\"Filesystem Information\";");
-        out.println("    style=filled;");
-        out.println("    color=lightgrey;");
-        out.printf("    info [label=\"%s\\nCluster Size: %d bytes\\nSectors per Cluster: %d\", fillcolor=lightblue];%n",
-                bootSector.getFatType(),
-                bootSector.getClusterSizeBytes(),
-                bootSector.getSectorsPerCluster());
-        out.println("  }");
-        out.println();
+        // Generate nodes and edges
+        int[] counter = {0};
+        generateDotNodes(fs.getRootDirectory(), "root", out, counter);
         
-        // Add root directory
-        out.println("  root [label=\"Root Directory\", fillcolor=yellow];");
-        
-        // TODO: Add directory traversal and file nodes
-        // This would require implementing a proper graph traversal
-        // For now, just show basic structure
-        
+        out.println("  ");
+        out.println("  fs -> root;");
         out.println("}");
         
         return writer.toString();
@@ -144,55 +140,268 @@ public class GraphApiController {
         StringWriter writer = new StringWriter();
         PrintWriter out = new PrintWriter(writer);
         
-        out.println("digraph FatFilesystemExpert {");
+        out.println("digraph filesystem {");
         out.println("  rankdir=TB;");
-        out.println("  node [shape=box, style=filled];");
-        out.println();
+        out.println("  node [shape=box];");
+        out.println("  compound=true;");
+        out.println("  ");
         
-        // Add detailed filesystem info
-        BootSector bootSector = fs.getBootSector();
-        FatTable fatTable = fs.getFatTable();
+        var bootSector = fs.getBootSector();
+        var fatTable = fs.getFatTable();
         
-        out.println("  subgraph cluster_boot {");
-        out.println("    label=\"Boot Sector Information\";");
+        // Filesystem header with detailed info
+        out.println("  subgraph cluster_fs {");
+        out.println("    label=\"FAT Filesystem Details\";");
         out.println("    style=filled;");
-        out.println("    color=lightgrey;");
-        out.printf("    boot [label=\"%s\\nTotal Sectors: %d\\nBytes per Sector: %d\\nSectors per Cluster: %d\\nCluster Size: %d bytes\\nReserved Sectors: %d\\nNumber of FATs: %d\", fillcolor=lightblue];%n",
-                bootSector.getFatType(),
-                bootSector.getTotalSectors(),
-                bootSector.getBytesPerSector(),
-                bootSector.getSectorsPerCluster(),
-                bootSector.getClusterSizeBytes(),
-                bootSector.getReservedSectorCount(),
-                bootSector.getNumberOfFats());
+        out.println("    fillcolor=lightblue;");
+        out.println("    ");
+        out.printf("    fs_info [label=\"%s Filesystem\\n", bootSector.getFatType());
+        out.printf("Total Size: %s\\n", formatSize(bootSector.getTotalSectors() * bootSector.getBytesPerSector()));
+        out.printf("Cluster Size: %d bytes\\n", bootSector.getClusterSizeBytes());
+        out.printf("Sectors/Cluster: %d\\n", bootSector.getSectorsPerCluster());
+        out.printf("Reserved Sectors: %d\\n", bootSector.getReservedSectorCount());
+        out.printf("FAT Tables: %d\\n", bootSector.getNumberOfFats());
+        out.printf("Sectors/FAT: %d", bootSector.getSectorsPerFat());
+        out.println("\", shape=record, style=filled, fillcolor=white];");
         out.println("  }");
-        out.println();
+        out.println("  ");
         
-        // Add FAT table information
-        out.println("  subgraph cluster_fat {");
-        out.println("    label=\"FAT Table Summary\";");
+        // FAT table visualization
+        generateFatTableVisualization(fs, out);
+        
+        // Directory structure with cluster details
+        out.println("  subgraph cluster_dirs {");
+        out.println("    label=\"Directory Structure\";");
         out.println("    style=filled;");
-        out.println("    color=lightyellow;");
+        out.println("    fillcolor=lightyellow;");
+        out.println("    ");
         
-        // Calculate cluster statistics
-        long totalClusters = calculateTotalClusters(bootSector);
-        long usedClusters = 0; // Would need to implement cluster counting
+        ExpertNodeContext context = new ExpertNodeContext();
+        generateExpertDotNodes(fs.getRootDirectory(), "root", out, context, fs);
         
-        out.printf("    fat_info [label=\"Total Clusters: %d\\nUsed Clusters: %d\\nFree Clusters: %d\\nCluster Utilization: %.1f%%\", fillcolor=lightgreen];%n",
-                totalClusters,
-                usedClusters,
-                totalClusters - usedClusters,
-                totalClusters > 0 ? (usedClusters * 100.0 / totalClusters) : 0.0);
         out.println("  }");
-        out.println();
+        out.println("  ");
         
-        out.println("  root [label=\"Root Directory\\nCluster: 2\", fillcolor=yellow];");
-        out.println("  boot -> fat_info [style=dashed];");
-        out.println("  fat_info -> root;");
+        // Generate cluster chain connections
+        generateClusterChainConnections(context, out);
         
         out.println("}");
         
         return writer.toString();
+    }
+    
+    private void generateFatTableVisualization(FatFileSystem fs, PrintWriter out) throws IOException {
+        var bootSector = fs.getBootSector();
+        var fatTable = fs.getFatTable();
+        
+        out.println("  subgraph cluster_fat {");
+        out.println("    label=\"FAT Table Summary\";");
+        out.println("    style=filled;");
+        out.println("    fillcolor=lightgray;");
+        out.println("    ");
+        
+        // Calculate total clusters
+        long dataSectors = bootSector.getTotalSectors() - 
+                          (bootSector.getReservedSectorCount() + 
+                           (bootSector.getNumberOfFats() * bootSector.getSectorsPerFat()) + 
+                           bootSector.getRootDirectorySectorCount());
+        long totalClusters = dataSectors / bootSector.getSectorsPerCluster();
+        
+        // Count used/free clusters
+        int usedClusters = 0;
+        int freeClusters = 0;
+        int badClusters = 0;
+        
+        for (long cluster = 2; cluster < totalClusters && cluster < 100; cluster++) { // Limit to first 100 for performance
+            try {
+                long entry = fatTable.getClusterEntry(cluster);
+                if (entry == 0) {
+                    freeClusters++;
+                } else if (entry == fatTable.getBadClusterMarker()) {
+                    badClusters++;
+                } else {
+                    usedClusters++;
+                }
+            } catch (IOException e) {
+                // Skip problematic clusters
+            }
+        }
+        
+        out.printf("    fat_summary [label=\"FAT Table Summary\\n");
+        out.printf("Total Clusters: %d\\n", totalClusters);
+        out.printf("Used Clusters: %d\\n", usedClusters);
+        out.printf("Free Clusters: %d\\n", freeClusters);
+        out.printf("Bad Clusters: %d\\n", badClusters);
+        out.printf("EOF Marker: 0x%s", Long.toHexString(fatTable.getEndOfChainMarker()).toUpperCase());
+        out.println("\", shape=record, style=filled, fillcolor=white];");
+        out.println("  }");
+        out.println("  ");
+    }
+    
+    private static class ExpertNodeContext {
+        int nodeCounter = 0;
+        StringBuilder clusterConnections = new StringBuilder();
+        
+        String getNextNodeId() {
+            return "node" + (++nodeCounter);
+        }
+        
+        void addClusterConnection(String fromNode, String toNode, String label) {
+            clusterConnections.append("  ").append(fromNode).append(" -> ").append(toNode);
+            clusterConnections.append(" [label=\"").append(label).append("\", style=dashed, color=red];").append('\n');
+        }
+    }
+    
+    private void generateExpertDotNodes(FatDirectory dir, String nodeId, PrintWriter out, 
+                                             ExpertNodeContext context, FatFileSystem fs) throws IOException {
+        // Get cluster chain for this directory
+        List<Long> clusterChain = new ArrayList<>();
+        try {
+            if (dir.getFirstCluster() != 0) {
+                clusterChain = fs.getFatTable().getClusterChain(dir.getFirstCluster());
+            }
+        } catch (Exception e) {
+            // Directory might not have cluster chain (e.g., FAT16 root directory)
+            clusterChain = new ArrayList<>();
+        }
+        
+        // Create node for directory with cluster information
+        out.printf("    %s [label=\"📁 ", nodeId);
+        out.print(dir.getName().isEmpty() ? "ROOT" : dir.getName());
+        out.print("\\n");
+        if (!clusterChain.isEmpty()) {
+            out.printf("First Cluster: %d\\n", dir.getFirstCluster());
+            out.print("Cluster Chain: ");
+            for (int i = 0; i < Math.min(clusterChain.size(), 5); i++) {
+                if (i > 0) out.print("→");
+                out.print(clusterChain.get(i));
+            }
+            if (clusterChain.size() > 5) {
+                out.printf("...(%d total)", clusterChain.size());
+            }
+        } else {
+            out.print("No clusters allocated");
+        }
+        out.println("\", style=filled, fillcolor=lightyellow];");
+        
+        List<FatEntry> entries = dir.list();
+        for (FatEntry entry : entries) {
+            String childId = context.getNextNodeId();
+            
+            if (entry.isDirectory()) {
+                generateExpertDotNodes((FatDirectory) entry, childId, out, context, fs);
+                out.printf("    %s -> %s", nodeId, childId);
+                out.println(" [color=blue, label=\"contains\"];");
+            } else {
+                // File node with cluster details
+                List<Long> fileClusterChain = new ArrayList<>();
+                try {
+                    if (entry.getFirstCluster() != 0) {
+                        fileClusterChain = fs.getFatTable().getClusterChain(entry.getFirstCluster());
+                    }
+                } catch (Exception e) {
+                    // File might not have cluster chain (e.g., small files)
+                    fileClusterChain = new ArrayList<>();
+                }
+                
+                out.printf("    %s [label=\"📄 %s\\n", childId, entry.getName());
+                out.printf("Size: %s\\n", formatSize(entry.getSize()));
+                if (!fileClusterChain.isEmpty()) {
+                    out.printf("First Cluster: %d\\n", entry.getFirstCluster());
+                    out.print("Clusters: ");
+                    for (int i = 0; i < Math.min(fileClusterChain.size(), 3); i++) {
+                        if (i > 0) out.print("→");
+                        out.print(fileClusterChain.get(i));
+                    }
+                    if (fileClusterChain.size() > 3) {
+                        out.printf("...(%d total)", fileClusterChain.size());
+                    }
+                } else {
+                    if (entry.getSize() == 0) {
+                        out.print("Empty file");
+                    } else {
+                        out.print("Small file (no clusters)");
+                    }
+                }
+                out.println("\", style=filled, fillcolor=lightgreen];");
+                
+                out.printf("    %s -> %s", nodeId, childId);
+                out.println(" [color=green, label=\"contains\"];");
+                
+                // Add cluster chain visualization for larger files
+                if (fileClusterChain.size() > 1) {
+                    generateClusterChainNodes(childId, fileClusterChain, out, context);
+                }
+            }
+        }
+    }
+    
+    private void generateClusterChainNodes(String fileNodeId, List<Long> clusterChain, 
+                                                PrintWriter out, ExpertNodeContext context) {
+        if (clusterChain.size() <= 1) return;
+        
+        String prevClusterNodeId = null;
+        for (int i = 0; i < Math.min(clusterChain.size(), 8); i++) { // Limit visualization to 8 clusters
+            String clusterNodeId = context.getNextNodeId();
+            long cluster = clusterChain.get(i);
+            
+            out.printf("    %s [label=\"Cluster\\n", clusterNodeId);
+            out.printf("%d\", shape=circle, style=filled, fillcolor=orange, fontsize=10];%n", cluster);
+            
+            if (i == 0) {
+                // Connect file to first cluster
+                context.addClusterConnection(fileNodeId, clusterNodeId, "data");
+            } else {
+                // Connect clusters in chain
+                context.addClusterConnection(prevClusterNodeId, clusterNodeId, "next");
+            }
+            
+            prevClusterNodeId = clusterNodeId;
+        }
+        
+        if (clusterChain.size() > 8) {
+            String endNodeId = context.getNextNodeId();
+            out.printf("    %s [label=\"...\\n", endNodeId);
+            out.printf("%d more\", shape=circle, style=filled, fillcolor=lightgray, fontsize=10];%n", clusterChain.size() - 8);
+            context.addClusterConnection(prevClusterNodeId, endNodeId, "...");
+        }
+    }
+    
+    private void generateClusterChainConnections(ExpertNodeContext context, PrintWriter out) {
+        if (context.clusterConnections.length() > 0) {
+            out.println("  // Cluster chain connections");
+            out.print(context.clusterConnections);
+        }
+    }
+    
+    private void generateDotNodes(FatDirectory dir, String nodeId, PrintWriter out, int[] counter) throws IOException {
+        // Create node for directory
+        out.printf("  %s [label=\"📁 %s", nodeId, dir.getName().isEmpty() ? "ROOT" : dir.getName());
+        out.println("\", style=filled, fillcolor=lightyellow];");
+        
+        List<FatEntry> entries = dir.list();
+        for (FatEntry entry : entries) {
+            counter[0]++;
+            String childId = "node" + counter[0];
+            
+            if (entry.isDirectory()) {
+                generateDotNodes((FatDirectory) entry, childId, out, counter);
+                out.printf("  %s -> %s;%n", nodeId, childId);
+            } else {
+                // File node
+                out.printf("  %s [label=\"📄 %s", childId, entry.getName());
+                out.printf("\\n%s", formatSize(entry.getSize()));
+                out.println("\", style=filled, fillcolor=lightgreen];");
+                out.printf("  %s -> %s;%n", nodeId, childId);
+            }
+        }
+    }
+    
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
     }
     
     private AnalysisResponse generateAnalysis(FatFileSystem fs) throws IOException {
@@ -250,11 +459,12 @@ public class GraphApiController {
     
     private void handleError(Object ctx, String message, Exception e) {
         try {
-            System.err.println(message + ": " + e.getMessage());
+            String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            System.err.println(message + ": " + errorMessage);
             e.printStackTrace();
             ctx.getClass().getMethod("status", int.class).invoke(ctx, 500);
             ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                Map.of("error", message, "message", e.getMessage()));
+                Map.of("error", message, "message", errorMessage));
         } catch (Exception ex) {
             ex.printStackTrace();
         }

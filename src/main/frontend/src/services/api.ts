@@ -88,15 +88,55 @@ export interface CreateEntryRequest {
 
 export const filesystemApi = {
   async listDirectory(imageName: string, path: string = '/'): Promise<DirectoryListing> {
-    const encodedPath = encodeURIComponent(path.substring(1)); // Remove leading slash
-    const url = encodedPath ? `${API_BASE_URL}/fs/${imageName}/${encodedPath}` : `${API_BASE_URL}/fs/${imageName}`;
-    const response = await fetch(url);
-    return handleResponse<DirectoryListing>(response);
+    // Properly encode path segments to handle special characters
+    const normalizedPath = path === '/' ? '' : path.startsWith('/') ? path.substring(1) : path;
+    const pathSegments = normalizedPath ? normalizedPath.split('/').map(segment => encodeURIComponent(segment)) : [];
+    const encodedPath = pathSegments.join('/');
+    
+    // Always include trailing slash to match backend wildcard route pattern /api/fs/{image}/**
+    const url = `${API_BASE_URL}/fs/${encodeURIComponent(imageName)}/${encodedPath}`;
+    
+    console.log('🔍 API listDirectory call:', { 
+      imageName, 
+      path, 
+      normalizedPath, 
+      encodedPath, 
+      url,
+      fullUrl: window.location.origin + url
+    });
+    
+    try {
+      const response = await fetch(url);
+      const responseText = await response.text();
+      
+      console.log('📡 API response:', { 
+        status: response.status, 
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        responseText: responseText.substring(0, 500) + (responseText.length > 500 ? '...' : '')
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${responseText}`);
+      }
+      
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return JSON.parse(responseText);
+      }
+      
+      throw new Error(`Expected JSON response but got: ${contentType}`);
+    } catch (error) {
+      console.error('❌ API call failed:', error);
+      throw error;
+    }
   },
 
   async createEntry(imageName: string, path: string, request: CreateEntryRequest): Promise<FileSystemEntry> {
-    const encodedPath = encodeURIComponent(path.substring(1));
-    const url = encodedPath ? `${API_BASE_URL}/fs/${imageName}/${encodedPath}` : `${API_BASE_URL}/fs/${imageName}`;
+    const normalizedPath = path === '/' ? '' : path.startsWith('/') ? path.substring(1) : path;
+    const pathSegments = normalizedPath ? normalizedPath.split('/').map(segment => encodeURIComponent(segment)) : [];
+    const encodedPath = pathSegments.join('/');
+    const url = `${API_BASE_URL}/fs/${encodeURIComponent(imageName)}/${encodedPath}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -108,8 +148,10 @@ export const filesystemApi = {
   },
 
   async updateFile(imageName: string, path: string, content: string): Promise<FileSystemEntry> {
-    const encodedPath = encodeURIComponent(path.substring(1));
-    const response = await fetch(`${API_BASE_URL}/fs/${imageName}/${encodedPath}`, {
+    const normalizedPath = path === '/' ? '' : path.startsWith('/') ? path.substring(1) : path;
+    const pathSegments = normalizedPath ? normalizedPath.split('/').map(segment => encodeURIComponent(segment)) : [];
+    const encodedPath = pathSegments.join('/');
+    const response = await fetch(`${API_BASE_URL}/fs/${encodeURIComponent(imageName)}/${encodedPath}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'text/plain',
@@ -120,16 +162,20 @@ export const filesystemApi = {
   },
 
   async deleteEntry(imageName: string, path: string): Promise<void> {
-    const encodedPath = encodeURIComponent(path.substring(1));
-    const response = await fetch(`${API_BASE_URL}/fs/${imageName}/${encodedPath}`, {
+    const normalizedPath = path === '/' ? '' : path.startsWith('/') ? path.substring(1) : path;
+    const pathSegments = normalizedPath ? normalizedPath.split('/').map(segment => encodeURIComponent(segment)) : [];
+    const encodedPath = pathSegments.join('/');
+    const response = await fetch(`${API_BASE_URL}/fs/${encodeURIComponent(imageName)}/${encodedPath}`, {
       method: 'DELETE',
     });
     await handleResponse<void>(response);
   },
 
   async downloadFile(imageName: string, path: string): Promise<Blob> {
-    const encodedPath = encodeURIComponent(path.substring(1));
-    const response = await fetch(`${API_BASE_URL}/fs/${imageName}/download/${encodedPath}`);
+    const normalizedPath = path === '/' ? '' : path.startsWith('/') ? path.substring(1) : path;
+    const pathSegments = normalizedPath ? normalizedPath.split('/').map(segment => encodeURIComponent(segment)) : [];
+    const encodedPath = pathSegments.join('/');
+    const response = await fetch(`${API_BASE_URL}/fs/${encodeURIComponent(imageName)}/download/${encodedPath}`);
     if (!response.ok) {
       throw new Error(`Failed to download file: ${response.statusText}`);
     }

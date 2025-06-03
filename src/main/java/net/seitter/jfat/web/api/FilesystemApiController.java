@@ -5,6 +5,7 @@ import net.seitter.jfat.core.FatDirectory;
 import net.seitter.jfat.core.FatFile;
 import net.seitter.jfat.core.FatEntry;
 import net.seitter.jfat.io.DeviceAccess;
+import io.javalin.http.Context;
 
 import java.io.File;
 import java.io.IOException;
@@ -21,69 +22,84 @@ public class FilesystemApiController {
     
     private static final String IMAGES_DIR = "images";
     
-    public void listDirectory(Object ctx) {
+    public void listDirectory(Context ctx) {
         try {
-            String imageName = (String) ctx.getClass().getMethod("pathParam", String.class).invoke(ctx, "image");
+            String imageName = ctx.pathParam("image");
             String path = extractPath(ctx);
             
+            System.out.println("🔍 Backend listDirectory called:");
+            System.out.println("  - imageName: " + imageName);
+            System.out.println("  - extracted path: " + path);
+            System.out.println("  - full request path: " + ctx.path());
+            System.out.println("  - request method: " + ctx.method());
+            
             String imagePath = IMAGES_DIR + "/" + imageName + ".img";
+            System.out.println("  - looking for image file: " + imagePath);
+            
             if (!new File(imagePath).exists()) {
-                ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
-                ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                    Map.of("error", "Image not found", "message", "No image found: " + imageName));
+                System.err.println("❌ Image file not found: " + imagePath);
+                ctx.status(404);
+                ctx.json(Map.of("error", "Image not found", "message", "No image found: " + imageName));
                 return;
             }
+            
+            System.out.println("✅ Image file found, mounting filesystem...");
             
             try (DeviceAccess device = new DeviceAccess(imagePath);
                  FatFileSystem fs = FatFileSystem.mount(device)) {
                 
                 FatEntry entry = getEntryByPath(fs, path);
                 if (entry == null) {
-                    ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
-                    ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                        Map.of("error", "Path not found", "message", "Path not found: " + path));
+                    System.err.println("❌ Path not found in filesystem: " + path);
+                    ctx.status(404);
+                    ctx.json(Map.of("error", "Path not found", "message", "Path not found: " + path));
                     return;
                 }
                 
                 if (!entry.isDirectory()) {
-                    ctx.getClass().getMethod("status", int.class).invoke(ctx, 400);
-                    ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                        Map.of("error", "Not a directory", "message", "Path is not a directory: " + path));
+                    System.err.println("❌ Path is not a directory: " + path);
+                    ctx.status(400);
+                    ctx.json(Map.of("error", "Not a directory", "message", "Path is not a directory: " + path));
                     return;
                 }
                 
                 FatDirectory directory = (FatDirectory) entry;
                 List<FileSystemEntry> entries = new ArrayList<>();
                 
+                System.out.println("📁 Listing directory contents...");
                 for (FatEntry child : directory.list()) {
-                    entries.add(createFileSystemEntry(child, path));
+                    FileSystemEntry fsEntry = createFileSystemEntry(child, path);
+                    entries.add(fsEntry);
+                    System.out.println("  - " + fsEntry.type + ": " + fsEntry.name + " (path: " + fsEntry.path + ")");
                 }
                 
                 DirectoryListing listing = new DirectoryListing();
                 listing.path = path;
                 listing.entries = entries;
                 
-                ctx.getClass().getMethod("json", Object.class).invoke(ctx, listing);
+                System.out.println("✅ Returning " + entries.size() + " entries for path: " + path);
+                ctx.json(listing);
             }
             
         } catch (Exception e) {
+            System.err.println("❌ Error in listDirectory: " + e.getMessage());
+            e.printStackTrace();
             handleError(ctx, "Failed to list directory", e);
         }
     }
     
-    public void createEntry(Object ctx) {
+    public void createEntry(Context ctx) {
         try {
-            String imageName = (String) ctx.getClass().getMethod("pathParam", String.class).invoke(ctx, "image");
+            String imageName = ctx.pathParam("image");
             String path = extractPath(ctx);
-            String body = (String) ctx.getClass().getMethod("body").invoke(ctx);
+            String body = ctx.body();
             
             CreateEntryRequest request = parseCreateEntryRequest(body);
             
             String imagePath = IMAGES_DIR + "/" + imageName + ".img";
             if (!new File(imagePath).exists()) {
-                ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
-                ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                    Map.of("error", "Image not found", "message", "No image found: " + imageName));
+                ctx.status(404);
+                ctx.json(Map.of("error", "Image not found", "message", "No image found: " + imageName));
                 return;
             }
             
@@ -98,9 +114,8 @@ public class FilesystemApiController {
                     
                     FatEntry parentEntry = getEntryByPath(fs, parentPath);
                     if (parentEntry == null || !parentEntry.isDirectory()) {
-                        ctx.getClass().getMethod("status", int.class).invoke(ctx, 400);
-                        ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                            Map.of("error", "Invalid parent directory", "message", "Parent directory not found: " + parentPath));
+                        ctx.status(400);
+                        ctx.json(Map.of("error", "Invalid parent directory", "message", "Parent directory not found: " + parentPath));
                         return;
                     }
                     
@@ -113,9 +128,8 @@ public class FilesystemApiController {
                     
                     FatEntry parentEntry = getEntryByPath(fs, parentPath);
                     if (parentEntry == null || !parentEntry.isDirectory()) {
-                        ctx.getClass().getMethod("status", int.class).invoke(ctx, 400);
-                        ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                            Map.of("error", "Invalid parent directory", "message", "Parent directory not found: " + parentPath));
+                        ctx.status(400);
+                        ctx.json(Map.of("error", "Invalid parent directory", "message", "Parent directory not found: " + parentPath));
                         return;
                     }
                     
@@ -127,8 +141,8 @@ public class FilesystemApiController {
                 }
                 
                 FileSystemEntry result = createFileSystemEntry(entry, path);
-                ctx.getClass().getMethod("status", int.class).invoke(ctx, 201);
-                ctx.getClass().getMethod("json", Object.class).invoke(ctx, result);
+                ctx.status(201);
+                ctx.json(result);
             }
             
         } catch (Exception e) {
@@ -136,17 +150,16 @@ public class FilesystemApiController {
         }
     }
     
-    public void updateFile(Object ctx) {
+    public void updateFile(Context ctx) {
         try {
-            String imageName = (String) ctx.getClass().getMethod("pathParam", String.class).invoke(ctx, "image");
+            String imageName = ctx.pathParam("image");
             String path = extractPath(ctx);
-            String content = (String) ctx.getClass().getMethod("body").invoke(ctx);
+            String content = ctx.body();
             
             String imagePath = IMAGES_DIR + "/" + imageName + ".img";
             if (!new File(imagePath).exists()) {
-                ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
-                ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                    Map.of("error", "Image not found", "message", "No image found: " + imageName));
+                ctx.status(404);
+                ctx.json(Map.of("error", "Image not found", "message", "No image found: " + imageName));
                 return;
             }
             
@@ -155,16 +168,14 @@ public class FilesystemApiController {
                 
                 FatEntry entry = getEntryByPath(fs, path);
                 if (entry == null) {
-                    ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
-                    ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                        Map.of("error", "File not found", "message", "File not found: " + path));
+                    ctx.status(404);
+                    ctx.json(Map.of("error", "File not found", "message", "File not found: " + path));
                     return;
                 }
                 
                 if (entry.isDirectory()) {
-                    ctx.getClass().getMethod("status", int.class).invoke(ctx, 400);
-                    ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                        Map.of("error", "Cannot update directory", "message", "Path is a directory: " + path));
+                    ctx.status(400);
+                    ctx.json(Map.of("error", "Cannot update directory", "message", "Path is a directory: " + path));
                     return;
                 }
                 
@@ -172,7 +183,7 @@ public class FilesystemApiController {
                 file.write(content.getBytes());
                 
                 FileSystemEntry result = createFileSystemEntry(file, getParentPath(path));
-                ctx.getClass().getMethod("json", Object.class).invoke(ctx, result);
+                ctx.json(result);
             }
             
         } catch (Exception e) {
@@ -180,16 +191,15 @@ public class FilesystemApiController {
         }
     }
     
-    public void deleteEntry(Object ctx) {
+    public void deleteEntry(Context ctx) {
         try {
-            String imageName = (String) ctx.getClass().getMethod("pathParam", String.class).invoke(ctx, "image");
+            String imageName = ctx.pathParam("image");
             String path = extractPath(ctx);
             
             String imagePath = IMAGES_DIR + "/" + imageName + ".img";
             if (!new File(imagePath).exists()) {
-                ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
-                ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                    Map.of("error", "Image not found", "message", "No image found: " + imageName));
+                ctx.status(404);
+                ctx.json(Map.of("error", "Image not found", "message", "No image found: " + imageName));
                 return;
             }
             
@@ -198,15 +208,13 @@ public class FilesystemApiController {
                 
                 FatEntry entry = getEntryByPath(fs, path);
                 if (entry == null) {
-                    ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
-                    ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                        Map.of("error", "Entry not found", "message", "Entry not found: " + path));
+                    ctx.status(404);
+                    ctx.json(Map.of("error", "Entry not found", "message", "Entry not found: " + path));
                     return;
                 }
                 
                 entry.delete();
-                ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                    Map.of("message", "Entry deleted successfully"));
+                ctx.json(Map.of("message", "Entry deleted successfully"));
             }
             
         } catch (Exception e) {
@@ -214,27 +222,26 @@ public class FilesystemApiController {
         }
     }
     
-    public void uploadFile(Object ctx) {
+    public void uploadFile(Context ctx) {
         try {
             // File upload implementation would go here
             // For now, return not implemented
-            ctx.getClass().getMethod("status", int.class).invoke(ctx, 501);
-            ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                Map.of("error", "Not implemented", "message", "File upload not yet implemented"));
+            ctx.status(501);
+            ctx.json(Map.of("error", "Not implemented", "message", "File upload not yet implemented"));
         } catch (Exception e) {
             handleError(ctx, "Failed to upload file", e);
         }
     }
     
-    public void downloadFile(Object ctx) {
+    public void downloadFile(Context ctx) {
         try {
-            String imageName = (String) ctx.getClass().getMethod("pathParam", String.class).invoke(ctx, "image");
+            String imageName = ctx.pathParam("image");
             String path = extractPath(ctx);
             
             String imagePath = IMAGES_DIR + "/" + imageName + ".img";
             if (!new File(imagePath).exists()) {
-                ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
-                ctx.getClass().getMethod("result", String.class).invoke(ctx, "Image not found");
+                ctx.status(404);
+                ctx.result("Image not found");
                 return;
             }
             
@@ -243,8 +250,8 @@ public class FilesystemApiController {
                 
                 FatEntry entry = getEntryByPath(fs, path);
                 if (entry == null || entry.isDirectory()) {
-                    ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
-                    ctx.getClass().getMethod("result", String.class).invoke(ctx, "File not found");
+                    ctx.status(404);
+                    ctx.result("File not found");
                     return;
                 }
                 
@@ -252,10 +259,9 @@ public class FilesystemApiController {
                 byte[] content = file.readAllBytes();
                 
                 String filename = entry.getName();
-                ctx.getClass().getMethod("header", String.class, String.class)
-                   .invoke(ctx, "Content-Disposition", "attachment; filename=\"" + filename + "\"");
-                ctx.getClass().getMethod("contentType", String.class).invoke(ctx, "application/octet-stream");
-                ctx.getClass().getMethod("result", byte[].class).invoke(ctx, content);
+                ctx.header("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+                ctx.contentType("application/octet-stream");
+                ctx.result(content);
             }
             
         } catch (Exception e) {
@@ -263,9 +269,46 @@ public class FilesystemApiController {
         }
     }
     
-    private String extractPath(Object ctx) throws Exception {
-        String splat = (String) ctx.getClass().getMethod("splat").invoke(ctx);
-        return splat != null && !splat.isEmpty() ? "/" + splat : "/";
+    private String extractPath(Context ctx) {
+        // In Javalin 5.6.3, wildcard paths are captured as path parameters
+        // The route is defined as /api/fs/{image}/** so we need to get the wildcard part
+        String pathInfo = ctx.path();
+        String imageName = ctx.pathParam("image");
+        
+        System.out.println("🔧 extractPath debug:");
+        System.out.println("  - full pathInfo: " + pathInfo);
+        System.out.println("  - imageName: " + imageName);
+        System.out.println("  - path params: " + ctx.pathParamMap());
+        System.out.println("  - query params: " + ctx.queryParamMap());
+        
+        // Try to get the wildcard parameter directly
+        try {
+            String wildcardParam = ctx.pathParam("*");
+            if (wildcardParam != null && !wildcardParam.isEmpty()) {
+                String result = "/" + wildcardParam;
+                System.out.println("  - found wildcard param: " + wildcardParam + " -> " + result);
+                return result;
+            }
+        } catch (Exception e) {
+            System.out.println("  - no wildcard param available");
+        }
+        
+        // Handle both /api/fs/{image} and /api/fs/{image}/ patterns
+        String basePathWithSlash = "/api/fs/" + imageName + "/";
+        String basePathWithoutSlash = "/api/fs/" + imageName;
+        
+        if (pathInfo.startsWith(basePathWithSlash)) {
+            String remainingPath = pathInfo.substring(basePathWithSlash.length());
+            String result = remainingPath.isEmpty() ? "/" : "/" + remainingPath;
+            System.out.println("  - matched with slash, extracted path: " + result);
+            return result;
+        } else if (pathInfo.equals(basePathWithoutSlash)) {
+            System.out.println("  - matched without slash, returning root path: /");
+            return "/";
+        }
+        
+        System.out.println("  - no match, defaulting to root path: /");
+        return "/";
     }
     
     private String getParentPath(String path) {
@@ -347,13 +390,12 @@ public class FilesystemApiController {
         return request;
     }
     
-    private void handleError(Object ctx, String message, Exception e) {
+    private void handleError(Context ctx, String message, Exception e) {
         try {
             System.err.println(message + ": " + e.getMessage());
             e.printStackTrace();
-            ctx.getClass().getMethod("status", int.class).invoke(ctx, 500);
-            ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
-                Map.of("error", message, "message", e.getMessage()));
+            ctx.status(500);
+            ctx.json(Map.of("error", message, "message", e.getMessage()));
         } catch (Exception ex) {
             ex.printStackTrace();
         }
