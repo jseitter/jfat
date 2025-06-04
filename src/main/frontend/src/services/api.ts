@@ -206,6 +206,66 @@ export interface AnalysisResponse {
   recommendedClusterSize: number;
   isOptimalClusterSize: boolean;
   clusterSizeInfo: string;
+  
+  // Fragmentation summary fields
+  fragmentationRatio: number;
+  fragmentationImpactScore: number;
+  defragmentationRecommended: boolean;
+  worstFragmentedFileCount: number;
+  freeSpaceFragmentationRatio: number;
+}
+
+// Fragmentation Analysis interfaces (imported from types)
+export interface FragmentationAnalysis {
+  fileFragmentation: FileFragmentationData;
+  freeSpaceFragmentation: FreeSpaceFragmentationData;
+  performanceImpact: PerformanceImpactData;
+  recommendations: FragmentationRecommendation[];
+}
+
+export interface FileFragmentationData {
+  fragmentationRatio: number;
+  averageFragmentsPerFile: number;
+  maxFileFragments: number;
+  sequentialClusterRatio: number;
+  averageClusterGap: number;
+  worstFiles: FileFragmentationInfo[];
+}
+
+export interface FreeSpaceFragmentationData {
+  freeSpaceFragmentationRatio: number;
+  largestContiguousFreeBlock: number;
+  averageFreeBlockSize: number;
+  freeBlockCount: number;
+  freeSpaceMap: FreeSpaceBlock[];
+}
+
+export interface PerformanceImpactData {
+  seekDistanceScore: number;
+  fragmentationImpactScore: number;
+  readEfficiencyScore: number;
+}
+
+export interface FileFragmentationInfo {
+  path: string;
+  name: string;
+  size: number;
+  clusterChain: number[];
+  fragmentCount: number;
+  averageGap: number;
+  severity: 'NONE' | 'LIGHT' | 'MODERATE' | 'HEAVY' | 'SEVERE';
+}
+
+export interface FragmentationRecommendation {
+  type: 'DEFRAGMENT_FILES' | 'CONSOLIDATE_FREE_SPACE' | 'FULL_DEFRAGMENTATION' | 'OPTIMIZE_ALLOCATION';
+  description: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  affectedFiles: string[];
+}
+
+export interface FreeSpaceBlock {
+  startCluster: number;
+  size: number;
 }
 
 export const graphApi = {
@@ -222,6 +282,11 @@ export const graphApi = {
   async getAnalysis(imageName: string): Promise<AnalysisResponse> {
     const response = await fetch(`${API_BASE_URL}/analysis/${imageName}`);
     return handleResponse<AnalysisResponse>(response);
+  },
+
+  async getFragmentationAnalysis(imageName: string): Promise<FragmentationAnalysis> {
+    const response = await fetch(`${API_BASE_URL}/fragmentation/${imageName}`);
+    return handleResponse<FragmentationAnalysis>(response);
   },
 };
 

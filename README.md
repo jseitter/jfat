@@ -16,6 +16,8 @@ A comprehensive Java library for reading and writing FAT (File Allocation Table)
 - **🔧 Complete FAT Support**: Read/write operations on FAT12, FAT16, and FAT32
 - **📁 Long Filename Support**: Full Unicode LFN support with automatic short name generation  
 - **⚡ Intelligent Cluster Sizing**: Microsoft-compliant cluster size optimization for peak performance
+- **📊 Fragmentation Analysis**: Comprehensive filesystem health analysis with performance impact assessment
+- **🔧 Defragmentation Intelligence**: Smart recommendations for optimizing file allocation and free space
 - **🖥️ Command-Line Interface**: Comprehensive CLI with filesystem operations and analysis
 - **🌐 Web Interface**: Modern browser-based interface with real-time visualization
 - **🔍 Advanced Analysis**: Expert-mode visualization with cluster chain mapping and FAT table analysis
@@ -57,6 +59,11 @@ java -jar jfat.jar create disk.img fat32 1024    # 1GB with automatic 4KB cluste
 # Explore filesystem contents
 java -jar jfat.jar list disk.img
 java -jar jfat.jar info disk.img                 # Shows cluster size optimization details
+
+# Analyze filesystem fragmentation
+java -jar jfat.jar fragmentation disk.img        # Overall fragmentation summary
+java -jar jfat.jar frag disk.img files           # Detailed file fragmentation analysis
+java -jar jfat.jar frag disk.img recommendations # Get defragmentation recommendations
 
 # Interactive exploration
 java -jar jfat.jar interactive disk.img

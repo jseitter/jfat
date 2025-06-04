@@ -7,6 +7,7 @@ import net.seitter.jfat.core.FatFile;
 import net.seitter.jfat.core.BootSector;
 import net.seitter.jfat.core.FatTable;
 import net.seitter.jfat.io.DeviceAccess;
+import net.seitter.jfat.analysis.FragmentationAnalyzer;
 
 import java.io.File;
 import java.io.IOException;
@@ -108,6 +109,35 @@ public class GraphApiController {
             
         } catch (Exception e) {
             handleError(ctx, "Failed to generate analysis", e);
+        }
+    }
+    
+    /**
+     * New endpoint for detailed fragmentation analysis
+     */
+    public void getFragmentationAnalysis(Object ctx) {
+        try {
+            String imageName = (String) ctx.getClass().getMethod("pathParam", String.class).invoke(ctx, "image");
+            String imagePath = IMAGES_DIR + "/" + imageName + ".img";
+            
+            if (!new File(imagePath).exists()) {
+                ctx.getClass().getMethod("status", int.class).invoke(ctx, 404);
+                ctx.getClass().getMethod("json", Object.class).invoke(ctx, 
+                    Map.of("error", "Image not found", "message", "No image found: " + imageName));
+                return;
+            }
+            
+            try (DeviceAccess device = new DeviceAccess(imagePath);
+                 FatFileSystem fs = FatFileSystem.mount(device)) {
+                
+                FragmentationAnalyzer analyzer = new FragmentationAnalyzer(fs);
+                FragmentationAnalyzer.FragmentationAnalysis analysis = analyzer.analyzeFragmentation();
+                
+                ctx.getClass().getMethod("json", Object.class).invoke(ctx, analysis);
+            }
+            
+        } catch (Exception e) {
+            handleError(ctx, "Failed to analyze fragmentation", e);
         }
     }
     
@@ -432,6 +462,28 @@ public class GraphApiController {
         // Cluster size validation
         analysis.clusterSizeInfo = bootSector.getClusterSizeInfo();
         
+        // Add fragmentation analysis
+        try {
+            FragmentationAnalyzer fragAnalyzer = new FragmentationAnalyzer(fs);
+            FragmentationAnalyzer.FragmentationAnalysis fragAnalysis = fragAnalyzer.analyzeFragmentation();
+            
+            // Add fragmentation summary to response
+            analysis.fragmentationRatio = fragAnalysis.fileFragmentation.fragmentationRatio;
+            analysis.fragmentationImpactScore = fragAnalysis.performanceImpact.fragmentationImpactScore;
+            analysis.defragmentationRecommended = fragAnalysis.performanceImpact.fragmentationImpactScore > 30.0;
+            analysis.worstFragmentedFileCount = fragAnalysis.fileFragmentation.worstFiles.size();
+            analysis.freeSpaceFragmentationRatio = fragAnalysis.freeSpaceFragmentation.freeSpaceFragmentationRatio;
+            
+        } catch (Exception e) {
+            System.err.println("Warning: Fragmentation analysis failed: " + e.getMessage());
+            // Set default values if fragmentation analysis fails
+            analysis.fragmentationRatio = 0.0;
+            analysis.fragmentationImpactScore = 0.0;
+            analysis.defragmentationRecommended = false;
+            analysis.worstFragmentedFileCount = 0;
+            analysis.freeSpaceFragmentationRatio = 0.0;
+        }
+        
         return analysis;
     }
     
@@ -493,5 +545,12 @@ public class GraphApiController {
         public int recommendedClusterSize;
         public boolean isOptimalClusterSize;
         public String clusterSizeInfo;
+        
+        // Fragmentation summary fields
+        public double fragmentationRatio;
+        public double fragmentationImpactScore;
+        public boolean defragmentationRecommended;
+        public int worstFragmentedFileCount;
+        public double freeSpaceFragmentationRatio;
     }
 } 

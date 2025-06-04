@@ -4,6 +4,7 @@ import net.seitter.jfat.core.FatFileSystem;
 import net.seitter.jfat.core.FatDirectory;
 import net.seitter.jfat.core.FatFile;
 import net.seitter.jfat.core.FatEntry;
+import net.seitter.jfat.analysis.FragmentationAnalyzer;
 
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
@@ -38,7 +39,8 @@ public class FatInteractiveShell {
     // MSDOS-like commands
     private static final String[] COMMANDS = {
         "DIR", "LS", "CD", "COPY", "CP", "DEL", "DELETE", "MD", "MKDIR", 
-        "RD", "RMDIR", "TYPE", "CAT", "PWD", "CLS", "CLEAR", "HELP", "EXIT", "QUIT"
+        "RD", "RMDIR", "TYPE", "CAT", "PWD", "CLS", "CLEAR", "FRAG", "FRAGMENTATION", 
+        "HELP", "EXIT", "QUIT"
     };
     
     public FatInteractiveShell(FatFileSystem fileSystem) throws IOException {
@@ -368,6 +370,10 @@ public class FatInteractiveShell {
             case "CAT":
                 handleType(args);
                 break;
+            case "FRAG":
+            case "FRAGMENTATION":
+                handleFragmentation(args);
+                break;
             case "PWD":
                 handlePwd();
                 break;
@@ -651,6 +657,153 @@ public class FatInteractiveShell {
         }
     }
     
+    private void handleFragmentation(String[] args) throws IOException {
+        String analysisType = args.length > 0 ? args[0].toLowerCase() : "summary";
+        
+        System.out.println("Analyzing filesystem fragmentation...");
+        System.out.println("Filesystem: " + fileSystem.getBootSector().getFatType());
+        System.out.println("-".repeat(50));
+        
+        try {
+            FragmentationAnalyzer analyzer = new FragmentationAnalyzer(fileSystem);
+            var analysis = analyzer.analyzeFragmentation();
+            
+            switch (analysisType) {
+                case "summary":
+                case "":
+                    displayShellFragmentationSummary(analysis);
+                    break;
+                case "files":
+                    displayShellFileAnalysis(analysis);
+                    break;
+                case "free":
+                    displayShellFreeSpaceAnalysis(analysis);
+                    break;
+                case "performance":
+                    displayShellPerformanceAnalysis(analysis);
+                    break;
+                case "recommendations":
+                case "rec":
+                    displayShellRecommendations(analysis);
+                    break;
+                default:
+                    System.out.println("Unknown analysis type: " + analysisType);
+                    System.out.println("Available types: summary, files, free, performance, recommendations");
+            }
+            
+        } catch (Exception e) {
+            System.out.println("Error during fragmentation analysis: " + e.getMessage());
+            if (System.getProperty("jfat.debug") != null) {
+                e.printStackTrace();
+            }
+        }
+    }
+    
+    private void displayShellFragmentationSummary(FragmentationAnalyzer.FragmentationAnalysis analysis) {
+        var fileFragmentation = analysis.fileFragmentation;
+        var performanceImpact = analysis.performanceImpact;
+        
+        System.out.printf("File Fragmentation:      %6.1f%%\n", fileFragmentation.fragmentationRatio);
+        System.out.printf("Performance Impact:      %6.1f/100\n", performanceImpact.fragmentationImpactScore);
+        System.out.printf("Fragmented Files:        %6d\n", fileFragmentation.worstFiles.size());
+        System.out.printf("Most Fragmented:         %6d fragments\n", fileFragmentation.maxFileFragments);
+        
+        if (performanceImpact.fragmentationImpactScore > 50) {
+            System.out.println("\n⚠️  HIGH FRAGMENTATION - Consider running 'FRAG recommendations'");
+        } else if (performanceImpact.fragmentationImpactScore > 20) {
+            System.out.println("\n⚠️  MODERATE FRAGMENTATION");
+        } else {
+            System.out.println("\n✅ LOW FRAGMENTATION - Filesystem is well optimized");
+        }
+    }
+    
+    private void displayShellFileAnalysis(FragmentationAnalyzer.FragmentationAnalysis analysis) {
+        var fileFragmentation = analysis.fileFragmentation;
+        
+        System.out.printf("Files analyzed:        %d\n", fileFragmentation.worstFiles.size());
+        System.out.printf("Fragmentation ratio:   %.1f%%\n", fileFragmentation.fragmentationRatio);
+        System.out.printf("Average fragments:     %.1f\n", fileFragmentation.averageFragmentsPerFile);
+        System.out.printf("Max file fragments:    %d\n", fileFragmentation.maxFileFragments);
+        
+        if (!fileFragmentation.worstFiles.isEmpty()) {
+            System.out.println("\nMost fragmented files:");
+            System.out.println("-".repeat(40));
+            int limit = Math.min(5, fileFragmentation.worstFiles.size());
+            for (int i = 0; i < limit; i++) {
+                var file = fileFragmentation.worstFiles.get(i);
+                System.out.printf("%s (%d fragments)\n", file.name, file.fragmentCount);
+            }
+            if (fileFragmentation.worstFiles.size() > 5) {
+                System.out.println("... and " + (fileFragmentation.worstFiles.size() - 5) + " more");
+            }
+        }
+    }
+    
+    private void displayShellFreeSpaceAnalysis(FragmentationAnalyzer.FragmentationAnalysis analysis) {
+        var freeSpace = analysis.freeSpaceFragmentation;
+        
+        System.out.printf("Free space fragmentation: %.1f%%\n", freeSpace.freeSpaceFragmentationRatio);
+        System.out.printf("Free blocks:              %d\n", freeSpace.freeBlockCount);
+        System.out.printf("Largest free block:       %d clusters\n", freeSpace.largestContiguousFreeBlock);
+        System.out.printf("Average block size:       %.1f clusters\n", freeSpace.averageFreeBlockSize);
+        
+        if (freeSpace.freeSpaceFragmentationRatio > 70) {
+            System.out.println("\n⚠️  HIGH free space fragmentation");
+            System.out.println("Consider consolidation to improve allocation efficiency");
+        }
+    }
+    
+    private void displayShellPerformanceAnalysis(FragmentationAnalyzer.FragmentationAnalysis analysis) {
+        var performance = analysis.performanceImpact;
+        
+        System.out.printf("Seek distance score:    %.1f/100\n", performance.seekDistanceScore);
+        System.out.printf("Read efficiency:        %.1f/100\n", performance.readEfficiencyScore);
+        System.out.printf("Overall impact:         %.1f/100\n", performance.fragmentationImpactScore);
+        
+        double impact = performance.fragmentationImpactScore;
+        System.out.println("\nPerformance Assessment:");
+        if (impact < 20) {
+            System.out.println("✅ EXCELLENT - Minimal performance impact");
+        } else if (impact < 40) {
+            System.out.println("✅ GOOD - Low performance impact");
+        } else if (impact < 60) {
+            System.out.println("⚠️  FAIR - Moderate performance impact");
+        } else if (impact < 80) {
+            System.out.println("⚠️  POOR - High performance impact");
+        } else {
+            System.out.println("❌ CRITICAL - Severe performance impact");
+        }
+    }
+    
+    private void displayShellRecommendations(FragmentationAnalyzer.FragmentationAnalysis analysis) {
+        var recommendations = analysis.recommendations;
+        
+        if (recommendations.isEmpty()) {
+            System.out.println("✅ No defragmentation needed!");
+            System.out.println("Your filesystem is well optimized.");
+            return;
+        }
+        
+        System.out.println("Defragmentation Recommendations:");
+        System.out.println("-".repeat(40));
+        
+        for (int i = 0; i < recommendations.size(); i++) {
+            var rec = recommendations.get(i);
+            System.out.printf("\n%d. [%s] %s\n", i + 1, rec.priority, rec.description);
+            
+            if (!rec.affectedFiles.isEmpty()) {
+                int fileCount = rec.affectedFiles.size();
+                if (fileCount <= 3) {
+                    for (String file : rec.affectedFiles) {
+                        System.out.println("   - " + file);
+                    }
+                } else {
+                    System.out.println("   Affects " + fileCount + " files");
+                }
+            }
+        }
+    }
+    
     private void handlePwd() {
         System.out.println(currentPath);
     }
@@ -669,6 +822,8 @@ public class FatInteractiveShell {
         System.out.println("  MD <dir>            - Create directory (alias: MKDIR)");
         System.out.println("  RD <dir>            - Remove directory (alias: RMDIR)");
         System.out.println("  TYPE <file>         - Display file contents (alias: CAT)");
+        System.out.println("  FRAG [type]         - Analyze filesystem fragmentation (alias: FRAGMENTATION)");
+        System.out.println("                        Types: summary, files, free, performance, recommendations");
         System.out.println("  PWD                 - Show current directory");
         System.out.println("  CLS                 - Clear screen (alias: CLEAR)");
         System.out.println("  HELP                - Show this help");
@@ -679,6 +834,13 @@ public class FatInteractiveShell {
         System.out.println("  - Context-aware completion based on command type");
         System.out.println("  - Supports both absolute (/path) and relative (path) paths");
         System.out.println("  - Local file completion for COPY source paths");
+        System.out.println();
+        System.out.println("Fragmentation Analysis:");
+        System.out.println("  FRAG summary        - Overall fragmentation overview");
+        System.out.println("  FRAG files          - Detailed file fragmentation analysis");
+        System.out.println("  FRAG free           - Free space fragmentation analysis");
+        System.out.println("  FRAG performance    - Performance impact assessment");
+        System.out.println("  FRAG recommendations - Defragmentation recommendations");
         System.out.println();
         System.out.println("Special paths:");
         System.out.println("  /                   - Root directory");

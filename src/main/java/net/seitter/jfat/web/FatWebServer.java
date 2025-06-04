@@ -107,6 +107,7 @@ public class FatWebServer {
         app.get("/api/graph/{image}", graphApi::getGraph);
         app.get("/api/graph/{image}/expert", graphApi::getExpertGraph);
         app.get("/api/analysis/{image}", graphApi::getAnalysis);
+        app.get("/api/fragmentation/{image}", graphApi::getFragmentationAnalysis);
         
         // WebSocket endpoint
         app.ws("/ws", this::configureWebSocket);

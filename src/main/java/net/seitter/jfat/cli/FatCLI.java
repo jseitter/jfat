@@ -9,6 +9,7 @@ import net.seitter.jfat.core.BootSector;
 import net.seitter.jfat.io.DeviceAccess;
 import net.seitter.jfat.util.DiskImageCreator;
 import net.seitter.jfat.web.FatWebServer;
+import net.seitter.jfat.analysis.FragmentationAnalyzer;
 
 import java.io.File;
 import java.io.IOException;
@@ -52,6 +53,11 @@ public class FatCLI {
                     break;
                 case "info":
                     handleInfo(Arrays.copyOfRange(args, 1, args.length));
+                    break;
+                case "fragmentation":
+                case "frag":
+                case "defrag":
+                    handleFragmentation(Arrays.copyOfRange(args, 1, args.length));
                     break;
                 case "graph":
                 case "dot":
@@ -113,6 +119,12 @@ public class FatCLI {
         System.out.println();
         System.out.println("  info <image>                     Show filesystem information");
         System.out.println();
+        System.out.println("  fragmentation <image> [analysis-type]  Analyze filesystem fragmentation");
+        System.out.println("  frag <image> [analysis-type]    Alias for fragmentation");
+        System.out.println("  defrag <image> [analysis-type]  Alias for fragmentation");
+        System.out.println("                                   Analysis types: summary (default), files, free,");
+        System.out.println("                                   performance, recommendations");
+        System.out.println();
         System.out.println("  graph <image> [output.dot] [--expert]  Export filesystem structure as DOT graph");
         System.out.println("                                   Use --expert for detailed FAT table and cluster chains");
         System.out.println("  dot <image> [output.dot] [--expert]    Alias for graph");
@@ -131,6 +143,10 @@ public class FatCLI {
         System.out.println("  java -jar jfat.jar create disk.img fat32 64");
         System.out.println("  java -jar jfat.jar list disk.img");
         System.out.println("  java -jar jfat.jar copy /home/user/file.txt disk.img /file.txt");
+        System.out.println("  java -jar jfat.jar info disk.img");
+        System.out.println("  java -jar jfat.jar fragmentation disk.img");
+        System.out.println("  java -jar jfat.jar frag disk.img files");
+        System.out.println("  java -jar jfat.jar defrag disk.img recommendations");
         System.out.println("  java -jar jfat.jar graph disk.img filesystem.dot");
         System.out.println("  java -jar jfat.jar graph disk.img expert_view.dot --expert");
         System.out.println("  java -jar jfat.jar interactive disk.img");
@@ -377,6 +393,60 @@ public class FatCLI {
             System.out.println("Files: " + stats.files);
             System.out.println("Total entries: " + (stats.directories + stats.files));
             System.out.println("Used space: " + formatSize(stats.totalSize));
+        }
+    }
+    
+    private static void handleFragmentation(String[] args) throws IOException {
+        if (args.length < 1 || args.length > 2) {
+            System.err.println("Usage: fragmentation <image> [analysis-type]");
+            System.err.println("  image: FAT image file");
+            System.err.println("  analysis-type: files, free, performance, recommendations, or summary (default)");
+            System.err.println();
+            System.err.println("Analysis types:");
+            System.err.println("  summary        - Overall fragmentation summary (default)");
+            System.err.println("  files          - Detailed file fragmentation analysis");
+            System.err.println("  free           - Free space fragmentation analysis");
+            System.err.println("  performance    - Performance impact assessment");
+            System.err.println("  recommendations - Defragmentation recommendations");
+            System.exit(1);
+        }
+        
+        String imagePath = args[0];
+        String analysisType = args.length > 1 ? args[1].toLowerCase() : "summary";
+        
+        try (DeviceAccess device = new DeviceAccess(imagePath);
+             FatFileSystem fs = FatFileSystem.mount(device)) {
+            
+            System.out.println("Analyzing fragmentation in: " + imagePath);
+            System.out.println("Filesystem: " + fs.getBootSector().getFatType());
+            System.out.println("=".repeat(60));
+            
+            FragmentationAnalyzer analyzer = new FragmentationAnalyzer(fs);
+            
+            switch (analysisType) {
+                case "summary":
+                    displayFragmentationSummary(analyzer);
+                    break;
+                case "files":
+                    displayFileFragmentationAnalysis(analyzer);
+                    break;
+                case "free":
+                    displayFreeSpaceAnalysis(analyzer);
+                    break;
+                case "performance":
+                    displayPerformanceAnalysis(analyzer);
+                    break;
+                case "recommendations":
+                    displayRecommendations(analyzer);
+                    break;
+                default:
+                    System.err.println("Error: Unknown analysis type: " + analysisType);
+                    System.err.println("Valid types: summary, files, free, performance, recommendations");
+                    System.exit(1);
+            }
+            
+            System.out.println();
+            System.out.println("✓ Fragmentation analysis completed");
         }
     }
     
@@ -944,5 +1014,188 @@ public class FatCLI {
         int directories = 0;
         int files = 0;
         long totalSize = 0;
+    }
+    
+    private static void displayFragmentationSummary(FragmentationAnalyzer analyzer) throws IOException {
+        var analysis = analyzer.analyzeFragmentation();
+        var fileFragmentation = analysis.fileFragmentation;
+        var freeSpaceFragmentation = analysis.freeSpaceFragmentation;
+        var performanceImpact = analysis.performanceImpact;
+        
+        System.out.println("Fragmentation Summary");
+        System.out.println("-".repeat(40));
+        System.out.printf("File Fragmentation:      %6.1f%%\n", fileFragmentation.fragmentationRatio);
+        System.out.printf("Free Space Fragmentation: %6.1f%%\n", freeSpaceFragmentation.freeSpaceFragmentationRatio);
+        System.out.printf("Performance Impact:      %6.1f/100\n", performanceImpact.fragmentationImpactScore);
+        System.out.printf("Average Fragments/File:  %6.1f\n", fileFragmentation.averageFragmentsPerFile);
+        System.out.printf("Most Fragmented File:    %6d fragments\n", fileFragmentation.maxFileFragments);
+        System.out.printf("Sequential Cluster Ratio: %6.1f%%\n", fileFragmentation.sequentialClusterRatio);
+        
+        System.out.println();
+        if (performanceImpact.fragmentationImpactScore > 50) {
+            System.out.println("⚠️  HIGH FRAGMENTATION DETECTED - Consider defragmentation");
+        } else if (performanceImpact.fragmentationImpactScore > 20) {
+            System.out.println("⚠️  MODERATE FRAGMENTATION - Monitor filesystem health");
+        } else {
+            System.out.println("✅ LOW FRAGMENTATION - Filesystem is well optimized");
+        }
+    }
+    
+    private static void displayFileFragmentationAnalysis(FragmentationAnalyzer analyzer) throws IOException {
+        var analysis = analyzer.analyzeFragmentation();
+        var fileFragmentation = analysis.fileFragmentation;
+        
+        System.out.println("File Fragmentation Analysis");
+        System.out.println("-".repeat(40));
+        System.out.printf("Fragmentation Ratio:      %6.1f%%\n", fileFragmentation.fragmentationRatio);
+        System.out.printf("Average Fragments/File:   %6.1f\n", fileFragmentation.averageFragmentsPerFile);
+        System.out.printf("Maximum File Fragments:   %6d\n", fileFragmentation.maxFileFragments);
+        System.out.printf("Sequential Cluster Ratio: %6.1f%%\n", fileFragmentation.sequentialClusterRatio);
+        System.out.printf("Average Cluster Gap:      %6.1f clusters\n", fileFragmentation.averageClusterGap);
+        
+        var worstFiles = fileFragmentation.worstFiles;
+        if (!worstFiles.isEmpty()) {
+            System.out.println();
+            System.out.println("Most Fragmented Files:");
+            System.out.println("-".repeat(40));
+            System.out.printf("%-30s %10s %10s %12s\n", "Filename", "Size", "Fragments", "Severity");
+            System.out.println("-".repeat(70));
+            
+            for (var fileInfo : worstFiles.subList(0, Math.min(10, worstFiles.size()))) {
+                System.out.printf("%-30s %10s %10d %12s\n",
+                    truncatePath(fileInfo.name, 30),
+                    formatSize(fileInfo.size),
+                    fileInfo.fragmentCount,
+                    fileInfo.severity);
+            }
+            
+            if (worstFiles.size() > 10) {
+                System.out.println("... and " + (worstFiles.size() - 10) + " more fragmented files");
+            }
+        }
+    }
+    
+    private static void displayFreeSpaceAnalysis(FragmentationAnalyzer analyzer) throws IOException {
+        var analysis = analyzer.analyzeFragmentation();
+        var freeSpaceFragmentation = analysis.freeSpaceFragmentation;
+        
+        System.out.println("Free Space Fragmentation Analysis");
+        System.out.println("-".repeat(40));
+        System.out.printf("Free Space Fragmentation: %6.1f%%\n", freeSpaceFragmentation.freeSpaceFragmentationRatio);
+        System.out.printf("Free Block Count:         %6d\n", freeSpaceFragmentation.freeBlockCount);
+        System.out.printf("Average Block Size:       %6.1f clusters\n", freeSpaceFragmentation.averageFreeBlockSize);
+        System.out.printf("Largest Contiguous Block: %6d clusters (%s)\n", 
+            freeSpaceFragmentation.largestContiguousFreeBlock,
+            formatSize(freeSpaceFragmentation.largestContiguousFreeBlock * analyzer.getFileSystem().getBootSector().getClusterSizeBytes()));
+        
+        var freeSpaceMap = freeSpaceFragmentation.freeSpaceMap;
+        if (!freeSpaceMap.isEmpty() && freeSpaceMap.size() <= 20) {
+            System.out.println();
+            System.out.println("Free Space Distribution:");
+            System.out.println("-".repeat(40));
+            System.out.printf("%-15s %-15s %s\n", "Start Cluster", "Size (clusters)", "Size (bytes)");
+            System.out.println("-".repeat(50));
+            
+            for (var block : freeSpaceMap) {
+                long sizeBytes = block.size * analyzer.getFileSystem().getBootSector().getClusterSizeBytes();
+                System.out.printf("%-15d %-15d %s\n", 
+                    block.startCluster, 
+                    block.size,
+                    formatSize(sizeBytes));
+            }
+        } else if (freeSpaceMap.size() > 20) {
+            System.out.println();
+            System.out.println("Free space is highly fragmented (" + freeSpaceMap.size() + " blocks)");
+            System.out.println("Consider defragmentation to consolidate free space");
+        }
+    }
+    
+    private static void displayPerformanceAnalysis(FragmentationAnalyzer analyzer) throws IOException {
+        var analysis = analyzer.analyzeFragmentation();
+        var performanceImpact = analysis.performanceImpact;
+        
+        System.out.println("Performance Impact Analysis");
+        System.out.println("-".repeat(40));
+        System.out.printf("Seek Distance Score:       %6.1f/100\n", performanceImpact.seekDistanceScore);
+        System.out.printf("Read Efficiency Score:     %6.1f/100\n", performanceImpact.readEfficiencyScore);
+        System.out.printf("Overall Impact Score:      %6.1f/100\n", performanceImpact.fragmentationImpactScore);
+        
+        System.out.println();
+        System.out.println("Performance Assessment:");
+        System.out.println("-".repeat(25));
+        
+        double impactScore = performanceImpact.fragmentationImpactScore;
+        if (impactScore < 20) {
+            System.out.println("✅ EXCELLENT - Minimal performance impact");
+            System.out.println("   Files are well organized with minimal fragmentation");
+        } else if (impactScore < 40) {
+            System.out.println("✅ GOOD - Low performance impact");
+            System.out.println("   Some fragmentation present but not significant");
+        } else if (impactScore < 60) {
+            System.out.println("⚠️  FAIR - Moderate performance impact");
+            System.out.println("   Noticeable fragmentation affecting read performance");
+        } else if (impactScore < 80) {
+            System.out.println("⚠️  POOR - High performance impact");
+            System.out.println("   Significant fragmentation causing slower file access");
+        } else {
+            System.out.println("❌ CRITICAL - Severe performance impact");
+            System.out.println("   Extreme fragmentation severely degrading performance");
+        }
+        
+        System.out.println();
+        if (impactScore > 50) {
+            System.out.println("Recommendation: Run defragmentation to improve performance");
+        } else {
+            System.out.println("Recommendation: Current fragmentation level is acceptable");
+        }
+    }
+    
+    private static void displayRecommendations(FragmentationAnalyzer analyzer) throws IOException {
+        var analysis = analyzer.analyzeFragmentation();
+        var recommendations = analysis.recommendations;
+        
+        System.out.println("Defragmentation Recommendations");
+        System.out.println("-".repeat(40));
+        
+        if (recommendations.isEmpty()) {
+            System.out.println("✅ No defragmentation needed!");
+            System.out.println("   Your filesystem is well optimized.");
+            return;
+        }
+        
+        for (int i = 0; i < recommendations.size(); i++) {
+            var rec = recommendations.get(i);
+            System.out.printf("\n%d. %s [%s PRIORITY]\n", 
+                i + 1, rec.description, rec.priority);
+            System.out.println("   Type: " + rec.type);
+            
+            if (!rec.affectedFiles.isEmpty()) {
+                System.out.println("   Affected files: " + rec.affectedFiles.size());
+                if (rec.affectedFiles.size() <= 5) {
+                    for (String file : rec.affectedFiles) {
+                        System.out.println("   - " + file);
+                    }
+                } else {
+                    for (int j = 0; j < 3; j++) {
+                        System.out.println("   - " + rec.affectedFiles.get(j));
+                    }
+                    System.out.println("   ... and " + (rec.affectedFiles.size() - 3) + " more files");
+                }
+            }
+        }
+        
+        System.out.println();
+        System.out.println("💡 Implementation Tips:");
+        System.out.println("   • Back up important data before defragmentation");
+        System.out.println("   • Start with HIGH priority recommendations");
+        System.out.println("   • Monitor filesystem health regularly");
+        System.out.println("   • Consider preventive measures (avoid file deletion/creation cycles)");
+    }
+    
+    private static String truncatePath(String path, int maxLength) {
+        if (path.length() <= maxLength) {
+            return path;
+        }
+        return "..." + path.substring(path.length() - maxLength + 3);
     }
 } 

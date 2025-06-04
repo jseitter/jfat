@@ -7,11 +7,12 @@ import FilesystemBrowser from './components/filesystem/FilesystemBrowser';
 import GraphVisualizer from './components/graph/GraphVisualizer';
 import ImageManager from './components/operations/ImageManager';
 import { useWebSocket } from './hooks/useWebSocket';
+import { getWebSocketUrl } from './utils/websocket';
 
 const { Content } = Layout;
 
 function App() {
-  const { isConnected } = useWebSocket('ws://localhost:8080/ws');
+  const { isConnected } = useWebSocket(getWebSocketUrl());
 
   return (
     <Layout style={{ minHeight: '100vh' }}>

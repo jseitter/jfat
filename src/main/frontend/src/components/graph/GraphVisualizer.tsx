@@ -14,19 +14,23 @@ import {
   Tooltip,
   Statistic,
   Row,
-  Col
+  Col,
+  Divider
 } from 'antd';
 import { 
   BarChartOutlined,
   SettingOutlined,
   DownloadOutlined,
   InfoCircleOutlined,
-  ClusterOutlined
+  ClusterOutlined,
+  WarningOutlined
 } from '@ant-design/icons';
 import * as d3 from 'd3';
 import { graphApi } from '../../services/api';
 import ImageSelector from '../common/ImageSelector';
-import { GraphResponse, AnalysisResponse } from '../../types';
+import InteractiveShell from '../shell/InteractiveShell';
+import FragmentationAnalysisDisplay from '../analysis/FragmentationAnalysisDisplay';
+import { GraphResponse, AnalysisResponse, FragmentationAnalysis } from '../../types';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -60,7 +64,9 @@ function GraphVisualizer() {
   const [selectedImage, setSelectedImage] = useState<string | undefined>(imageName);
   const [graphData, setGraphData] = useState<GraphResponse | null>(null);
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
+  const [fragmentationData, setFragmentationData] = useState<FragmentationAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingFragmentation, setLoadingFragmentation] = useState(false);
   const [expertMode, setExpertMode] = useState(false);
   const [activeTab, setActiveTab] = useState('graph');
 
@@ -72,8 +78,16 @@ function GraphVisualizer() {
     } else {
       setGraphData(null);
       setAnalysisData(null);
+      setFragmentationData(null);
     }
   }, [selectedImage, expertMode]);
+
+  // Load fragmentation data when analysis tab is accessed
+  useEffect(() => {
+    if (selectedImage && activeTab === 'analysis' && !fragmentationData) {
+      loadFragmentationAnalysis();
+    }
+  }, [selectedImage, activeTab]);
 
   // Render graph when data is available and SVG ref is ready
   useEffect(() => {
@@ -117,6 +131,24 @@ function GraphVisualizer() {
       console.error('❌ Failed to load analysis:', error);
       // Don't show error message for analysis as it's supplementary
       setAnalysisData(null);
+    }
+  };
+
+  const loadFragmentationAnalysis = async () => {
+    if (!selectedImage) return;
+    
+    setLoadingFragmentation(true);
+    try {
+      console.log('🔍 Loading fragmentation analysis:', { selectedImage });
+      const data = await graphApi.getFragmentationAnalysis(selectedImage);
+      console.log('📈 Fragmentation analysis data received:', data);
+      setFragmentationData(data);
+    } catch (error) {
+      console.error('❌ Failed to load fragmentation analysis:', error);
+      message.error('Failed to load fragmentation analysis: ' + (error as Error).message);
+      setFragmentationData(null);
+    } finally {
+      setLoadingFragmentation(false);
     }
   };
 
@@ -429,6 +461,8 @@ function GraphVisualizer() {
 
     return (
       <div>
+        {/* Basic Filesystem Analysis */}
+        <Title level={4}>📊 Filesystem Analysis</Title>
         <Row gutter={[16, 16]}>
           <Col span={8}>
             <Card>
@@ -490,6 +524,48 @@ function GraphVisualizer() {
           </Col>
         </Row>
 
+        {/* Fragmentation Summary */}
+        {(analysisData.fragmentationRatio !== undefined || analysisData.defragmentationRecommended) && (
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Col span={8}>
+              <Card>
+                <Statistic
+                  title="File Fragmentation"
+                  value={`${analysisData.fragmentationRatio?.toFixed(1) || 0}%`}
+                  valueStyle={{ 
+                    color: (analysisData.fragmentationRatio || 0) < 10 ? '#52c41a' : 
+                           (analysisData.fragmentationRatio || 0) < 30 ? '#faad14' : '#f5222d'
+                  }}
+                  prefix={<WarningOutlined />}
+                />
+              </Card>
+            </Col>
+            <Col span={8}>
+              <Card>
+                <Statistic
+                  title="Performance Impact"
+                  value={`${analysisData.fragmentationImpactScore?.toFixed(0) || 0}/100`}
+                  valueStyle={{ 
+                    color: (analysisData.fragmentationImpactScore || 0) < 20 ? '#52c41a' : 
+                           (analysisData.fragmentationImpactScore || 0) < 50 ? '#faad14' : '#f5222d'
+                  }}
+                />
+              </Card>
+            </Col>
+            <Col span={8}>
+              <Card>
+                <Statistic
+                  title="Defragmentation"
+                  value={analysisData.defragmentationRecommended ? 'Recommended' : 'Not Needed'}
+                  valueStyle={{ 
+                    color: analysisData.defragmentationRecommended ? '#fa8c16' : '#52c41a'
+                  }}
+                />
+              </Card>
+            </Col>
+          </Row>
+        )}
+
         {analysisData.clusterSizeInfo && (
           <Card style={{ marginTop: 16 }}>
             <Alert
@@ -501,8 +577,54 @@ function GraphVisualizer() {
             />
           </Card>
         )}
+
+        {/* Detailed Fragmentation Analysis */}
+        <Divider />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <Title level={4}>🔧 Detailed Fragmentation Analysis</Title>
+          <Button 
+            onClick={loadFragmentationAnalysis}
+            loading={loadingFragmentation}
+            type="primary"
+            ghost
+          >
+            {fragmentationData ? 'Refresh Analysis' : 'Analyze Fragmentation'}
+          </Button>
+        </div>
+
+        {loadingFragmentation ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <Spin size="large" />
+            <div style={{ marginTop: 16 }}>
+              <Text>Analyzing filesystem fragmentation...</Text>
+            </div>
+          </div>
+        ) : fragmentationData ? (
+          <FragmentationAnalysisDisplay data={fragmentationData} />
+        ) : (
+          <Card>
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <Text type="secondary">
+                Click "Analyze Fragmentation" to get detailed insights into file fragmentation, 
+                free space distribution, and performance impact.
+              </Text>
+            </div>
+          </Card>
+        )}
       </div>
     );
+  };
+
+  // Handle filesystem changes from shell
+  const handleFilesystemChange = (changedImageName: string) => {
+    console.log('🔄 Filesystem changed for:', changedImageName);
+    if (changedImageName === selectedImage) {
+      message.info('Filesystem changed - refreshing graph...');
+      // Reload graph data after a short delay
+      setTimeout(() => {
+        loadGraphData();
+      }, 500);
+    }
   };
 
   return (
@@ -512,6 +634,7 @@ function GraphVisualizer() {
         <Paragraph>
           Visualize filesystem structure, cluster allocation, and analyze storage efficiency.
           Switch between basic view (filesystem structure) and expert mode (detailed cluster information).
+          Use the interactive shell to modify the filesystem and see changes reflected in real-time.
         </Paragraph>
       </div>
 
@@ -521,84 +644,97 @@ function GraphVisualizer() {
       />
 
       {selectedImage && (
-        <Card>
-          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Space>
-              <Text strong>Visualization Mode:</Text>
-              <Switch
-                checked={expertMode}
-                onChange={setExpertMode}
-                checkedChildren="Expert"
-                unCheckedChildren="Basic"
-                loading={loading}
-              />
-              <Tooltip title={expertMode ? 
-                "Expert mode shows detailed cluster chains, FAT table structure, and technical information" :
-                "Basic mode shows simplified filesystem hierarchy and structure"
-              }>
-                <InfoCircleOutlined style={{ color: '#666' }} />
-              </Tooltip>
-            </Space>
-            <Space>
-              {graphData && (
-                <Button 
-                  icon={<DownloadOutlined />}
-                  onClick={handleDownloadGraph}
-                >
-                  Download DOT
-                </Button>
-              )}
-              <Button 
-                icon={<SettingOutlined />}
-                onClick={loadGraphData}
-                loading={loading}
-                type="primary"
-              >
-                Generate Graph
-              </Button>
-            </Space>
-          </div>
+        <Row gutter={16}>
+          {/* Main Graph Panel */}
+          <Col span={16}>
+            <Card>
+              <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Space>
+                  <Text strong>Visualization Mode:</Text>
+                  <Switch
+                    checked={expertMode}
+                    onChange={setExpertMode}
+                    checkedChildren="Expert"
+                    unCheckedChildren="Basic"
+                    loading={loading}
+                  />
+                  <Tooltip title={expertMode ? 
+                    "Expert mode shows detailed cluster chains, FAT table structure, and technical information" :
+                    "Basic mode shows simplified filesystem hierarchy and structure"
+                  }>
+                    <InfoCircleOutlined style={{ color: '#666' }} />
+                  </Tooltip>
+                </Space>
+                <Space>
+                  {graphData && (
+                    <Button 
+                      icon={<DownloadOutlined />}
+                      onClick={handleDownloadGraph}
+                    >
+                      Download DOT
+                    </Button>
+                  )}
+                  <Button 
+                    icon={<SettingOutlined />}
+                    onClick={loadGraphData}
+                    loading={loading}
+                    type="primary"
+                  >
+                    Generate Graph
+                  </Button>
+                </Space>
+              </div>
 
-          <Tabs activeKey={activeTab} onChange={setActiveTab}>
-            <TabPane tab="Graph Visualization" key="graph">
-              {loading ? (
-                <div style={{ textAlign: 'center', padding: '40px' }}>
-                  <Spin size="large" />
-                  <div style={{ marginTop: 16 }}>
-                    <Text>Generating {expertMode ? 'expert' : 'basic'} graph visualization...</Text>
-                  </div>
-                </div>
-              ) : graphData ? (
-                <div>
-                  <div style={{ marginBottom: 16 }}>
-                    <Tag color={expertMode ? 'red' : 'blue'}>
-                      {expertMode ? 'Expert Mode' : 'Basic Mode'}
-                    </Tag>
-                    <Text type="secondary" style={{ marginLeft: 8 }}>
-                      {graphData.imageName} - {graphData.format.toUpperCase()} format
-                    </Text>
-                  </div>
-                  <div style={{ border: '1px solid #d9d9d9', borderRadius: '6px', overflow: 'hidden' }}>
-                    <svg ref={svgRef} />
-                  </div>
-                  <div style={{ marginTop: 16 }}>
-                    <Text type="secondary">
-                      💡 Drag nodes to reposition, scroll to zoom, click and drag to pan
-                    </Text>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ textAlign: 'center', padding: '40px' }}>
-                  <Text type="secondary">Click "Generate Graph" to visualize the filesystem</Text>
-                </div>
-              )}
-            </TabPane>
-            
-            <TabPane tab="Analysis" key="analysis">
-              {renderAnalysisTab()}
-            </TabPane>
-          </Tabs>
-        </Card>
+              <Tabs activeKey={activeTab} onChange={setActiveTab}>
+                <TabPane tab="Graph Visualization" key="graph">
+                  {loading ? (
+                    <div style={{ textAlign: 'center', padding: '40px' }}>
+                      <Spin size="large" />
+                      <div style={{ marginTop: 16 }}>
+                        <Text>Generating {expertMode ? 'expert' : 'basic'} graph visualization...</Text>
+                      </div>
+                    </div>
+                  ) : graphData ? (
+                    <div>
+                      <div style={{ marginBottom: 16 }}>
+                        <Tag color={expertMode ? 'red' : 'blue'}>
+                          {expertMode ? 'Expert Mode' : 'Basic Mode'}
+                        </Tag>
+                        <Text type="secondary" style={{ marginLeft: 8 }}>
+                          {graphData.imageName} - {graphData.format.toUpperCase()} format
+                        </Text>
+                      </div>
+                      <div style={{ border: '1px solid #d9d9d9', borderRadius: '6px', overflow: 'hidden' }}>
+                        <svg ref={svgRef} />
+                      </div>
+                      <div style={{ marginTop: 16 }}>
+                        <Text type="secondary">
+                          💡 Drag nodes to reposition, scroll to zoom, click and drag to pan
+                        </Text>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '40px' }}>
+                      <Text type="secondary">Click "Generate Graph" to visualize the filesystem</Text>
+                    </div>
+                  )}
+                </TabPane>
+                
+                <TabPane tab="Analysis" key="analysis">
+                  {renderAnalysisTab()}
+                </TabPane>
+              </Tabs>
+            </Card>
+          </Col>
+
+          {/* Interactive Shell Panel */}
+          <Col span={8}>
+            <InteractiveShell
+              selectedImage={selectedImage}
+              onFilesystemChange={handleFilesystemChange}
+            />
+          </Col>
+        </Row>
       )}
     </div>
   );
